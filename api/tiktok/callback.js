@@ -1,5 +1,3 @@
-const crypto = require("crypto");
-
 function getCookie(req, name) {
   const cookies = req.headers.cookie || "";
 
@@ -22,6 +20,7 @@ module.exports = async (req, res) => {
     error_description,
   } = req.query;
 
+  // TikTok trả về lỗi OAuth
   if (error) {
     return res
       .status(400)
@@ -32,27 +31,46 @@ module.exports = async (req, res) => {
       );
   }
 
+  // Phải có authorization code
   if (!code) {
     return res.status(400).send("Missing authorization code");
   }
 
+  // Kiểm tra state để chống giả mạo OAuth
   const savedState = getCookie(req, "tiktok_oauth_state");
 
   if (!state || !savedState || state !== savedState) {
     return res.status(400).send("Invalid OAuth state");
   }
 
-  const clientKey = process.env.TIKTOK_CLIENT_KEY;
-  const clientSecret = process.env.TIKTOK_CLIENT_SECRET;
+  // Xác định Sandbox hay Production
+  const mode = getCookie(req, "tiktok_oauth_mode") || "production";
+
+  const clientKey =
+    mode === "sandbox"
+      ? process.env.TIKTOK_SANDBOX_CLIENT_KEY
+      : process.env.TIKTOK_CLIENT_KEY;
+
+  const clientSecret =
+    mode === "sandbox"
+      ? process.env.TIKTOK_SANDBOX_CLIENT_SECRET
+      : process.env.TIKTOK_CLIENT_SECRET;
 
   if (!clientKey || !clientSecret) {
-    return res.status(500).send("TikTok environment variables are missing");
+    return res
+      .status(500)
+      .send(
+        mode === "sandbox"
+          ? "TikTok Sandbox environment variables are missing"
+          : "TikTok Production environment variables are missing"
+      );
   }
 
   const redirectUri =
     "https://phong-affiliate-ai.vercel.app/api/tiktok/callback";
 
   try {
+    // Đổi authorization code lấy access token
     const body = new URLSearchParams({
       client_key: clientKey,
       client_secret: clientSecret,
@@ -81,26 +99,32 @@ module.exports = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: "TikTok token exchange failed",
+        mode,
         error: tokenData,
       });
     }
 
-    // Tạm thời chỉ xác nhận OAuth thành công.
-    // Không hiển thị access_token ra trình duyệt.
-    console.log("TikTok OAuth successful");
+    console.log("TikTok OAuth successful:", {
+      mode,
+      open_id: tokenData.open_id,
+      scope: tokenData.scope,
+      expires_in: tokenData.expires_in,
+    });
 
-    res.setHeader(
-      "Set-Cookie",
-      "tiktok_oauth_state=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0"
-    );
+    // Xóa OAuth cookies sau khi xác thực thành công
+    res.setHeader("Set-Cookie", [
+      "tiktok_oauth_state=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0",
+      "tiktok_oauth_mode=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0",
+    ]);
 
+    // Hiển thị kết quả kiểm thử
     return res.status(200).send(`
       <!DOCTYPE html>
       <html lang="vi">
       <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Phong Affiliate AI</title>
+        <title>Phong Affiliate AI - TikTok Connected</title>
         <style>
           body {
             font-family: Arial, sans-serif;
@@ -111,9 +135,17 @@ module.exports = async (req, res) => {
           }
 
           .success {
-            font-size: 22px;
+            font-size: 24px;
             font-weight: bold;
             margin-bottom: 20px;
+          }
+
+          .info {
+            background: #f5f5f5;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: left;
+            margin: 20px 0;
           }
 
           a {
@@ -134,6 +166,18 @@ module.exports = async (req, res) => {
 
         <p>
           Phong Affiliate AI đã nhận được quyền truy cập từ TikTok.
+        </p>
+
+        <div class="info">
+          <strong>Môi trường:</strong> ${mode}<br><br>
+          <strong>TikTok Open ID:</strong> ${tokenData.open_id || "N/A"}<br><br>
+          <strong>Scope:</strong> ${tokenData.scope || "N/A"}<br><br>
+          <strong>Access Token:</strong> Đã nhận<br><br>
+          <strong>Refresh Token:</strong> Đã nhận
+        </div>
+
+        <p>
+          Bước tiếp theo: kiểm tra Creator Info và chuẩn bị đăng video.
         </p>
 
         <a href="/">
