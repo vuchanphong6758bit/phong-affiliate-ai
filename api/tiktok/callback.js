@@ -129,7 +129,7 @@ const creatorInfoData = await creatorInfoResponse.json();
 
 console.log("TikTok Creator Info:", creatorInfoData);
 
-if (!creatorInfoResponse.ok || creatorInfoData.error?.code) {
+if (!creatorInfoResponse.ok || creatorInfoData.error?.code !== "ok") { {
   return res.status(400).json({
     success: false,
     message: "TikTok Creator Info failed",
