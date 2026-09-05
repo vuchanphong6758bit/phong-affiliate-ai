@@ -5,16 +5,27 @@ module.exports = async (req, res) => {
     return res.status(405).send("Method Not Allowed");
   }
 
-  const clientKey = process.env.TIKTOK_CLIENT_KEY;
+  const mode = req.query.mode === "sandbox" ? "sandbox" : "production";
+
+  const clientKey =
+    mode === "sandbox"
+      ? process.env.TIKTOK_SANDBOX_CLIENT_KEY
+      : process.env.TIKTOK_CLIENT_KEY;
 
   if (!clientKey) {
-    return res.status(500).send("TIKTOK_CLIENT_KEY is not configured");
+    return res
+      .status(500)
+      .send(
+        mode === "sandbox"
+          ? "TIKTOK_SANDBOX_CLIENT_KEY is not configured"
+          : "TIKTOK_CLIENT_KEY is not configured"
+      );
   }
 
   const redirectUri =
     "https://phong-affiliate-ai.vercel.app/api/tiktok/callback";
 
-  // Tạo state để chống giả mạo OAuth request
+  // Tạo state chống giả mạo OAuth
   const state = crypto.randomBytes(32).toString("hex");
 
   const scope = "user.info.basic,video.upload,video.publish";
@@ -27,10 +38,10 @@ module.exports = async (req, res) => {
     state,
   });
 
-  // Lưu state vào cookie để callback kiểm tra lại
+  // Lưu state + mode để callback biết đang dùng Sandbox hay Production
   res.setHeader(
     "Set-Cookie",
-    `tiktok_oauth_state=${state}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=600`
+    `tiktok_oauth_state=${state}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=600, tiktok_oauth_mode=${mode}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=600`
   );
 
   const authorizeUrl =
