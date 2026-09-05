@@ -111,6 +111,33 @@ module.exports = async (req, res) => {
       expires_in: tokenData.expires_in,
     });
 
+
+    // Kiểm tra Creator Info
+const creatorInfoResponse = await fetch(
+  "https://open.tiktokapis.com/v2/post/publish/creator_info/query/",
+  {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${tokenData.access_token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({}),
+  }
+);
+
+const creatorInfoData = await creatorInfoResponse.json();
+
+console.log("TikTok Creator Info:", creatorInfoData);
+
+if (!creatorInfoResponse.ok || creatorInfoData.error?.code) {
+  return res.status(400).json({
+    success: false,
+    message: "TikTok Creator Info failed",
+    mode,
+    error: creatorInfoData,
+  });
+}
+    
     // Xóa OAuth cookies sau khi xác thực thành công
     res.setHeader("Set-Cookie", [
       "tiktok_oauth_state=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0",
