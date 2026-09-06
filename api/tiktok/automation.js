@@ -1,11 +1,11 @@
 const crypto = require("crypto");
+const { getToken, updateRefreshedToken } = require("../../lib/tiktok-store");
 
 function timingSafeEqualText(a, b) {
   if (!a || !b) return false;
-  const aBuf = Buffer.from(String(a));
-  const bBuf = Buffer.from(String(b));
-  if (aBuf.length !== bBuf.length) return false;
-  return crypto.timingSafeEqual(aBuf, bBuf);
+  const x = Buffer.from(String(a));
+  const y = Buffer.from(String(b));
+  return x.length === y.length && crypto.timingSafeEqual(x, y);
 }
 
 function getAutomationKey(req) {
@@ -16,29 +16,49 @@ function getMode(req, body) {
   return (body?.mode || req.headers["x-tiktok-mode"] || "sandbox") === "production" ? "production" : "sandbox";
 }
 
-function getConfig(mode) {
+function config(mode) {
   return mode === "production"
-    ? { clientKey: process.env.TIKTOK_CLIENT_KEY, clientSecret: process.env.TIKTOK_CLIENT_SECRET, refreshToken: process.env.TIKTOK_REFRESH_TOKEN }
-    : { clientKey: process.env.TIKTOK_SANDBOX_CLIENT_KEY, clientSecret: process.env.TIKTOK_SANDBOX_CLIENT_SECRET, refreshToken: process.env.TIKTOK_SANDBOX_REFRESH_TOKEN };
+    ? { clientKey: process.env.TIKTOK_CLIENT_KEY, clientSecret: process.env.TIKTOK_CLIENT_SECRET }
+    : { clientKey: process.env.TIKTOK_SANDBOX_CLIENT_KEY, clientSecret: process.env.TIKTOK_SANDBOX_CLIENT_SECRET };
 }
 
-async function refreshAccessToken(mode) {
-  const config = getConfig(mode);
-  if (!config.clientKey || !config.clientSecret) throw new Error(`TikTok ${mode} client credentials are missing.`);
-  if (!config.refreshToken) throw new Error(`TikTok ${mode} refresh token is missing. Add ${mode === "production" ? "TIKTOK_REFRESH_TOKEN" : "TIKTOK_SANDBOX_REFRESH_TOKEN"} in Vercel.`);
+async function getFreshAccessToken(mode) {
+  const cfg = config(mode);
+  if (!cfg.clientKey || !cfg.clientSecret) throw new Error(`TikTok ${mode} client credentials are missing.`);
 
-  const body = new URLSearchParams({ client_key: config.clientKey, client_secret: config.clientSecret, grant_type: "refresh_token", refresh_token: config.refreshToken });
+  const stored = await getToken(mode, cfg.clientSecret);
+  if (!stored) throw new Error(`TikTok ${mode} is not connected yet. Open /api/tiktok/auth?mode=${mode} once to authorize the account.`);
+
+  // Reuse a still-valid access token; refresh only when close to expiry.
+  if (stored.accessExpiresAt > Date.now() + 5 * 60 * 1000) return stored.accessToken;
+
   const response = await fetch("https://open.tiktokapis.com/v2/oauth/token/", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded", "Cache-Control": "no-cache" },
-    body: body.toString(),
+    body: new URLSearchParams({
+      client_key: cfg.clientKey,
+      client_secret: cfg.clientSecret,
+      grant_type: "refresh_token",
+      refresh_token: stored.refreshToken,
+    }).toString(),
   });
   const data = await response.json();
-  if (!response.ok || data.error) throw new Error(data.error_description || data.error || "TikTok access token refresh failed.");
-  return { accessToken: data.access_token, refreshToken: data.refresh_token || config.refreshToken, expiresIn: Number(data.expires_in || 86400) };
+  if (!response.ok || data.error || !data.access_token) {
+    throw new Error(data.error_description || data.error || "TikTok access token refresh failed.");
+  }
+
+  // TikTok may rotate the refresh token. Persist the returned one immediately.
+  await updateRefreshedToken({
+    mode,
+    accessToken: data.access_token,
+    refreshToken: data.refresh_token || stored.refreshToken,
+    expiresIn: Number(data.expires_in || 86400),
+    secret: cfg.clientSecret,
+  });
+  return data.access_token;
 }
 
-async function getCreatorInfo(accessToken) {
+async function creatorInfo(accessToken) {
   const response = await fetch("https://open.tiktokapis.com/v2/post/publish/creator_info/query/", {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
@@ -52,15 +72,13 @@ async function initPost(accessToken, body) {
   if (!String(body.video_url).startsWith("https://")) return { ok: false, status: 400, message: "video_url phải sử dụng HTTPS." };
   if (body.consent !== true) return { ok: false, status: 400, message: "consent phải là true." };
 
-  const creatorResult = await getCreatorInfo(accessToken);
-  if (!creatorResult.response.ok || creatorResult.data.error?.code !== "ok") {
-    return { ok: false, status: creatorResult.response.status || 400, data: creatorResult.data, message: "TikTok Creator Info failed." };
-  }
+  const info = await creatorInfo(accessToken);
+  if (!info.response.ok || info.data.error?.code !== "ok") return { ok: false, status: info.response.status || 400, data: info.data, message: "TikTok Creator Info failed." };
 
-  const creator = creatorResult.data.data || {};
-  const privacyOptions = creator.privacy_level_options || [];
-  if (!body.privacy_level || !privacyOptions.includes(body.privacy_level)) {
-    return { ok: false, status: 400, message: "privacy_level không nằm trong danh sách TikTok cho phép.", privacy_level_options: privacyOptions };
+  const creator = info.data.data || {};
+  const options = creator.privacy_level_options || [];
+  if (!body.privacy_level || !options.includes(body.privacy_level)) {
+    return { ok: false, status: 400, message: "privacy_level không nằm trong danh sách TikTok cho phép.", privacy_level_options: options };
   }
 
   const response = await fetch("https://open.tiktokapis.com/v2/post/publish/video/init/", {
@@ -82,7 +100,7 @@ async function initPost(accessToken, body) {
   });
   const data = await response.json();
   if (!response.ok || data.error?.code !== "ok") return { ok: false, status: response.status || 400, data, message: "TikTok Direct Post initialization failed." };
-  return { ok: true, status: 200, data: { publish_id: data.data?.publish_id, privacy_level: body.privacy_level } };
+  return { ok: true, data: { publish_id: data.data?.publish_id, privacy_level: body.privacy_level } };
 }
 
 async function fetchStatus(accessToken, publishId) {
@@ -106,20 +124,20 @@ module.exports = async (req, res) => {
   const mode = getMode(req, body);
 
   try {
-    const token = await refreshAccessToken(mode);
+    const accessToken = await getFreshAccessToken(mode);
 
     if (body.action === "status") {
       if (!body.publish_id) return res.status(400).json({ success: false, message: "Thiếu publish_id." });
-      const result = await fetchStatus(token.accessToken, body.publish_id);
+      const result = await fetchStatus(accessToken, body.publish_id);
       if (!result.response.ok || result.data.error?.code !== "ok") return res.status(result.response.status || 400).json({ success: false, message: "Không lấy được trạng thái TikTok.", error: result.data });
       return res.status(200).json({ success: true, mode, publish_id: body.publish_id, status: result.data.data?.status, fail_reason: result.data.data?.fail_reason || null, publicly_available_post_id: result.data.data?.publicaly_available_post_id || [], data: result.data.data });
     }
 
-    const result = await initPost(token.accessToken, body);
+    const result = await initPost(accessToken, body);
     if (!result.ok) return res.status(result.status || 400).json({ success: false, message: result.message, error: result.data || null, privacy_level_options: result.privacy_level_options });
-    return res.status(200).json({ success: true, mode, publish_id: result.data.publish_id, privacy_level: result.data.privacy_level, token_expires_in: token.expiresIn });
+    return res.status(200).json({ success: true, mode, publish_id: result.data.publish_id, privacy_level: result.data.privacy_level });
   } catch (error) {
-    console.error("TikTok automation error:", error);
+    console.error("TikTok automation error:", error.message);
     return res.status(500).json({ success: false, message: error.message || "TikTok automation server error." });
   }
 };
