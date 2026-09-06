@@ -18,39 +18,46 @@ function assertHttpsUrl(rawUrl) {
 }
 
 function textClip(text, start, length, position = "center") {
-  if (!text) return null;
+  if (!text || length <= 0) return null;
+  const align = position === "top"
+    ? { horizontal: "center", vertical: "top" }
+    : position === "bottom"
+      ? { horizontal: "center", vertical: "bottom" }
+      : { horizontal: "center", vertical: "middle" };
+
   return {
     asset: {
       type: "rich-text",
       text: String(text),
-      style: "minimal",
       font: { family: "Montserrat", color: "#FFFFFF", size: 42, weight: 700 },
-      background: { color: "#000000", opacity: 0.65, padding: 18, borderRadius: 12 },
+      align,
+      background: { color: "#000000", opacity: 0.65, borderRadius: 12, wrap: true },
     },
     start,
     length,
-    position,
+    width: 900,
+    height: 220,
     transition: { in: "fade", out: "fade" },
+    position,
   };
 }
 
 function buildEdit(body) {
   const sourceUrl = assertHttpsUrl(body.source_url || body.video_url);
   const duration = Math.min(Math.max(Number(body.duration || 30), 15), 60);
-  const clips = [
-    {
-      asset: {
-        type: "video",
-        src: sourceUrl,
-        volume: 1,
-        trim: 0,
-      },
-      start: 0,
-      length: duration,
-      fit: "cover",
-      position: "center",
+
+  const backgroundVideo = {
+    asset: {
+      type: "video",
+      src: sourceUrl,
+      volume: 1,
+      trim: 0,
     },
-  ];
+    start: 0,
+    length: duration,
+    fit: "crop",
+    position: "center",
+  };
 
   const overlays = [
     textClip(body.hook, 0, Math.min(4, duration), "top"),
@@ -64,14 +71,12 @@ function buildEdit(body) {
     timeline: {
       background: "#000000",
       tracks: [
-        { clips },
         { clips: overlays },
+        { clips: [backgroundVideo] },
       ],
     },
     output: {
       format: "mp4",
-      resolution: "hd",
-      aspectRatio: "9:16",
       fps: 30,
       size: { width: 1080, height: 1920 },
     },
@@ -79,7 +84,7 @@ function buildEdit(body) {
 }
 
 async function shotstackFetch(path, options = {}) {
-  const base = process.env.SHOTSTACK_API_BASE || "https://api.shotstack.io/edit/stage";
+  const base = process.env.SHOTSTACK_API_BASE || "https://api.shotstack.io/edit/v1";
   return fetch(`${base}${path}`, {
     ...options,
     headers: {
@@ -119,7 +124,7 @@ module.exports = async (req, res) => {
       success: true,
       render_id: data.response?.id || data.id,
       status: data.response?.status || data.status || "queued",
-      environment: process.env.SHOTSTACK_API_BASE?.includes("/v1/") ? "production" : "stage",
+      environment: process.env.SHOTSTACK_API_BASE?.includes("/stage") ? "stage" : "production",
       edit,
     });
   } catch (error) {
