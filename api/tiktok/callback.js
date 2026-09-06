@@ -138,13 +138,60 @@ if (!creatorInfoResponse.ok || creatorInfoData.error?.code !== "ok") {
   });
 }
     
-    // Xóa OAuth cookies sau khi xác thực thành công
+        // Tạo session mã hóa để các endpoint TikTok khác
+    // có thể sử dụng access token mà không đưa token ra trình duyệt.
+    const crypto = require("crypto");
+
+    function encryptSession(data, secret) {
+      const key = crypto
+        .createHash("sha256")
+        .update(secret)
+        .digest();
+
+      const iv = crypto.randomBytes(12);
+
+      const cipher = crypto.createCipheriv(
+        "aes-256-gcm",
+        key,
+        iv
+      );
+
+      const encrypted = Buffer.concat([
+        cipher.update(JSON.stringify(data), "utf8"),
+        cipher.final(),
+      ]);
+
+      const tag = cipher.getAuthTag();
+
+      return [
+        iv.toString("base64url"),
+        tag.toString("base64url"),
+        encrypted.toString("base64url"),
+      ].join(".");
+    }
+
+    const session = encryptSession(
+      {
+        mode,
+        access_token: tokenData.access_token,
+        open_id: tokenData.open_id,
+        expires_at:
+          Date.now() +
+          Number(tokenData.expires_in || 86400) * 1000,
+      },
+      clientSecret
+    );
+
+    // Xóa OAuth state cookies + lưu session TikTok mã hóa
     res.setHeader("Set-Cookie", [
       "tiktok_oauth_state=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0",
       "tiktok_oauth_mode=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0",
+      `tiktok_session=${session}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${Math.max(
+        300,
+        Number(tokenData.expires_in || 86400)
+      )}`,
     ]);
 
-    // Hiển thị kết quả kiểm thử
     return res.status(200).send(`
       <!DOCTYPE html>
       <html lang="vi">
@@ -199,23 +246,20 @@ if (!creatorInfoResponse.ok || creatorInfoData.error?.code !== "ok") {
           <strong>Môi trường:</strong> ${mode}<br><br>
           <strong>TikTok Open ID:</strong> ${tokenData.open_id || "N/A"}<br><br>
           <strong>Scope:</strong> ${tokenData.scope || "N/A"}<br><br>
+          <strong>Creator:</strong> ${
+            creatorInfoData.data?.creator_username || "N/A"
+          }<br><br>
           <strong>Access Token:</strong> Đã nhận<br><br>
           <strong>Refresh Token:</strong> Đã nhận
         </div>
 
         <p>
-          Bước tiếp theo: kiểm tra Creator Info và chuẩn bị đăng video.
+          Kết nối TikTok hoàn tất. Có thể bắt đầu đăng video.
         </p>
 
-        <a href="/">
-          Quay lại Phong Affiliate AI
+        <a href="/api/tiktok/post">
+          Đăng video TikTok
         </a>
       </body>
       </html>
     `);
-  } catch (err) {
-    console.error("TikTok OAuth error:", err);
-
-    return res.status(500).send("TikTok OAuth server error");
-  }
-};
