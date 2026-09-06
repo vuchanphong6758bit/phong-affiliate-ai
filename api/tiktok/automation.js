@@ -29,7 +29,6 @@ async function getFreshAccessToken(mode) {
   const stored = await getToken(mode, cfg.clientSecret);
   if (!stored) throw new Error(`TikTok ${mode} is not connected yet. Open /api/tiktok/auth?mode=${mode} once to authorize the account.`);
 
-  // Reuse a still-valid access token; refresh only when close to expiry.
   if (stored.accessExpiresAt > Date.now() + 5 * 60 * 1000) return stored.accessToken;
 
   const response = await fetch("https://open.tiktokapis.com/v2/oauth/token/", {
@@ -47,7 +46,6 @@ async function getFreshAccessToken(mode) {
     throw new Error(data.error_description || data.error || "TikTok access token refresh failed.");
   }
 
-  // TikTok may rotate the refresh token. Persist the returned one immediately.
   await updateRefreshedToken({
     mode,
     accessToken: data.access_token,
@@ -67,9 +65,27 @@ async function creatorInfo(accessToken) {
   return { response, data: await response.json() };
 }
 
+function toOwnedVideoUrl(rawUrl) {
+  const parsed = new URL(String(rawUrl));
+  const allowedHosts = ["backblazeb2.com", "f002.backblazeb2.com"];
+  const isBackblaze = allowedHosts.some(
+    (host) => parsed.hostname === host || parsed.hostname.endsWith(`.${host}`)
+  );
+  if (!isBackblaze) return parsed.toString();
+  return `https://phong-affiliate-ai.vercel.app/api/tiktok/media?url=${encodeURIComponent(parsed.toString())}`;
+}
+
 async function initPost(accessToken, body) {
   if (!body.video_url) return { ok: false, status: 400, message: "Thiếu video_url." };
-  if (!String(body.video_url).startsWith("https://")) return { ok: false, status: 400, message: "video_url phải sử dụng HTTPS." };
+
+  let videoUrl;
+  try {
+    videoUrl = toOwnedVideoUrl(body.video_url);
+  } catch {
+    return { ok: false, status: 400, message: "video_url không hợp lệ." };
+  }
+
+  if (!videoUrl.startsWith("https://")) return { ok: false, status: 400, message: "video_url phải sử dụng HTTPS." };
   if (body.consent !== true) return { ok: false, status: 400, message: "consent phải là true." };
 
   const info = await creatorInfo(accessToken);
@@ -95,12 +111,12 @@ async function initPost(accessToken, body) {
         brand_content_toggle: false,
         brand_organic_toggle: false,
       },
-      source_info: { source: "PULL_FROM_URL", video_url: body.video_url },
+      source_info: { source: "PULL_FROM_URL", video_url: videoUrl },
     }),
   });
   const data = await response.json();
   if (!response.ok || data.error?.code !== "ok") return { ok: false, status: response.status || 400, data, message: "TikTok Direct Post initialization failed." };
-  return { ok: true, data: { publish_id: data.data?.publish_id, privacy_level: body.privacy_level } };
+  return { ok: true, data: { publish_id: data.data?.publish_id, privacy_level: body.privacy_level, video_url: videoUrl } };
 }
 
 async function fetchStatus(accessToken, publishId) {
@@ -135,7 +151,7 @@ module.exports = async (req, res) => {
 
     const result = await initPost(accessToken, body);
     if (!result.ok) return res.status(result.status || 400).json({ success: false, message: result.message, error: result.data || null, privacy_level_options: result.privacy_level_options });
-    return res.status(200).json({ success: true, mode, publish_id: result.data.publish_id, privacy_level: result.data.privacy_level });
+    return res.status(200).json({ success: true, mode, publish_id: result.data.publish_id, privacy_level: result.data.privacy_level, video_url: result.data.video_url });
   } catch (error) {
     console.error("TikTok automation error:", error.message);
     return res.status(500).json({ success: false, message: error.message || "TikTok automation server error." });
