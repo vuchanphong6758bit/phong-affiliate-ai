@@ -65,58 +65,107 @@ async function creatorInfo(accessToken) {
   return { response, data: await response.json() };
 }
 
-function toOwnedVideoUrl(rawUrl) {
+function assertVideoUrl(rawUrl) {
   const parsed = new URL(String(rawUrl));
+  if (parsed.protocol !== "https:") throw new Error("video_url phải sử dụng HTTPS.");
   const allowedHosts = ["backblazeb2.com", "f002.backblazeb2.com"];
   const isBackblaze = allowedHosts.some(
     (host) => parsed.hostname === host || parsed.hostname.endsWith(`.${host}`)
   );
-  if (!isBackblaze) return parsed.toString();
-  return `https://phong-affiliate-ai.vercel.app/api/tiktok/media?url=${encodeURIComponent(parsed.toString())}`;
+  if (!isBackblaze) throw new Error("Video host không được phép.");
+  return parsed.toString();
 }
 
-async function initPost(accessToken, body) {
-  if (!body.video_url) return { ok: false, status: 400, message: "Thiếu video_url." };
-
-  let videoUrl;
+async function uploadFileToTikTok(accessToken, sourceUrl, creator, body) {
+  let videoResponse;
   try {
-    videoUrl = toOwnedVideoUrl(body.video_url);
-  } catch {
-    return { ok: false, status: 400, message: "video_url không hợp lệ." };
+    videoResponse = await fetch(assertVideoUrl(sourceUrl), {
+      redirect: "follow",
+      headers: { Accept: "video/mp4,video/*;q=0.9,*/*;q=0.1" },
+    });
+  } catch (error) {
+    throw new Error(`Không tải được video nguồn: ${error.message}`);
   }
 
-  if (!videoUrl.startsWith("https://")) return { ok: false, status: 400, message: "video_url phải sử dụng HTTPS." };
-  if (body.consent !== true) return { ok: false, status: 400, message: "consent phải là true." };
+  if (!videoResponse.ok) throw new Error(`Không tải được video nguồn: HTTP ${videoResponse.status}.`);
+
+  const mimeType = (videoResponse.headers.get("content-type") || "video/mp4").split(";")[0];
+  const buffer = Buffer.from(await videoResponse.arrayBuffer());
+  const videoSize = buffer.length;
+  if (!videoSize) throw new Error("Video nguồn rỗng.");
+  if (videoSize > 64 * 1024 * 1024) {
+    throw new Error("Video test hiện vượt 64 MB; cần bật upload theo nhiều chunk trước khi đăng video lớn.");
+  }
 
   const info = await creatorInfo(accessToken);
-  if (!info.response.ok || info.data.error?.code !== "ok") return { ok: false, status: info.response.status || 400, data: info.data, message: "TikTok Creator Info failed." };
+  if (!info.response.ok || info.data.error?.code !== "ok") {
+    return { ok: false, status: info.response.status || 400, data: info.data, message: "TikTok Creator Info failed." };
+  }
 
-  const creator = info.data.data || {};
-  const options = creator.privacy_level_options || [];
+  const currentCreator = info.data.data || creator;
+  const options = currentCreator.privacy_level_options || [];
   if (!body.privacy_level || !options.includes(body.privacy_level)) {
     return { ok: false, status: 400, message: "privacy_level không nằm trong danh sách TikTok cho phép.", privacy_level_options: options };
   }
 
-  const response = await fetch("https://open.tiktokapis.com/v2/post/publish/video/init/", {
+  const initResponse = await fetch("https://open.tiktokapis.com/v2/post/publish/video/init/", {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json; charset=UTF-8" },
     body: JSON.stringify({
       post_info: {
         title: String(body.title || "").slice(0, 2200),
         privacy_level: body.privacy_level,
-        disable_duet: creator.duet_disabled === true,
-        disable_comment: creator.comment_disabled === true,
-        disable_stitch: creator.stitch_disabled === true,
+        disable_duet: currentCreator.duet_disabled === true,
+        disable_comment: currentCreator.comment_disabled === true,
+        disable_stitch: currentCreator.stitch_disabled === true,
         is_aigc: body.is_aigc === true,
         brand_content_toggle: false,
         brand_organic_toggle: false,
       },
-      source_info: { source: "PULL_FROM_URL", video_url: videoUrl },
+      source_info: {
+        source: "FILE_UPLOAD",
+        video_size: videoSize,
+        chunk_size: videoSize,
+        total_chunk_count: 1,
+      },
     }),
   });
-  const data = await response.json();
-  if (!response.ok || data.error?.code !== "ok") return { ok: false, status: response.status || 400, data, message: "TikTok Direct Post initialization failed." };
-  return { ok: true, data: { publish_id: data.data?.publish_id, privacy_level: body.privacy_level, video_url: videoUrl } };
+
+  const initData = await initResponse.json();
+  if (!initResponse.ok || initData.error?.code !== "ok" || !initData.data?.upload_url) {
+    return { ok: false, status: initResponse.status || 400, data: initData, message: "TikTok Direct Post initialization failed." };
+  }
+
+  const uploadUrl = initData.data.upload_url;
+  const uploadResponse = await fetch(uploadUrl, {
+    method: "PUT",
+    headers: {
+      "Content-Type": mimeType,
+      "Content-Length": String(videoSize),
+      "Content-Range": `bytes 0-${videoSize - 1}/${videoSize}`,
+    },
+    body: buffer,
+  });
+
+  if (!uploadResponse.ok && uploadResponse.status !== 201 && uploadResponse.status !== 206) {
+    const uploadText = await uploadResponse.text().catch(() => "");
+    return {
+      ok: false,
+      status: uploadResponse.status || 400,
+      message: "TikTok video upload failed.",
+      data: { status: uploadResponse.status, body: uploadText.slice(0, 1000) },
+    };
+  }
+
+  return {
+    ok: true,
+    data: {
+      publish_id: initData.data.publish_id,
+      privacy_level: body.privacy_level,
+      video_url: sourceUrl,
+      transfer_method: "FILE_UPLOAD",
+    },
+  };
 }
 
 async function fetchStatus(accessToken, publishId) {
@@ -149,9 +198,17 @@ module.exports = async (req, res) => {
       return res.status(200).json({ success: true, mode, publish_id: body.publish_id, status: result.data.data?.status, fail_reason: result.data.data?.fail_reason || null, publicly_available_post_id: result.data.data?.publicaly_available_post_id || [], data: result.data.data });
     }
 
-    const result = await initPost(accessToken, body);
+    if (body.consent !== true) return res.status(400).json({ success: false, message: "consent phải là true." });
+    if (!body.video_url) return res.status(400).json({ success: false, message: "Thiếu video_url." });
+
+    const creatorResult = await creatorInfo(accessToken);
+    if (!creatorResult.response.ok || creatorResult.data.error?.code !== "ok") {
+      return res.status(creatorResult.response.status || 400).json({ success: false, message: "TikTok Creator Info failed.", error: creatorResult.data });
+    }
+    const creator = creatorResult.data.data || {};
+    const result = await uploadFileToTikTok(accessToken, body.video_url, creator, body);
     if (!result.ok) return res.status(result.status || 400).json({ success: false, message: result.message, error: result.data || null, privacy_level_options: result.privacy_level_options });
-    return res.status(200).json({ success: true, mode, publish_id: result.data.publish_id, privacy_level: result.data.privacy_level, video_url: result.data.video_url });
+    return res.status(200).json({ success: true, mode, publish_id: result.data.publish_id, privacy_level: result.data.privacy_level, transfer_method: result.data.transfer_method });
   } catch (error) {
     console.error("TikTok automation error:", error.message);
     return res.status(500).json({ success: false, message: error.message || "TikTok automation server error." });
