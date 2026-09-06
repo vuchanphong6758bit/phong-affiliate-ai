@@ -1,3 +1,5 @@
+const crypto = require("crypto");
+
 function getCookie(req, name) {
   const cookies = req.headers.cookie || "";
 
@@ -6,6 +8,34 @@ function getCookie(req, name) {
   );
 
   return match ? decodeURIComponent(match[1]) : null;
+}
+
+function encryptSession(data, secret) {
+  const key = crypto
+    .createHash("sha256")
+    .update(secret)
+    .digest();
+
+  const iv = crypto.randomBytes(12);
+
+  const cipher = crypto.createCipheriv(
+    "aes-256-gcm",
+    key,
+    iv
+  );
+
+  const encrypted = Buffer.concat([
+    cipher.update(JSON.stringify(data), "utf8"),
+    cipher.final(),
+  ]);
+
+  const tag = cipher.getAuthTag();
+
+  return [
+    iv.toString("base64url"),
+    tag.toString("base64url"),
+    encrypted.toString("base64url"),
+  ].join(".");
 }
 
 module.exports = async (req, res) => {
@@ -26,25 +56,40 @@ module.exports = async (req, res) => {
       .status(400)
       .send(
         `TikTok authorization failed: ${error}${
-          error_description ? ` - ${error_description}` : ""
+          error_description
+            ? ` - ${error_description}`
+            : ""
         }`
       );
   }
 
   // Phải có authorization code
   if (!code) {
-    return res.status(400).send("Missing authorization code");
+    return res
+      .status(400)
+      .send("Missing authorization code");
   }
 
-  // Kiểm tra state để chống giả mạo OAuth
-  const savedState = getCookie(req, "tiktok_oauth_state");
+  // Kiểm tra state
+  const savedState = getCookie(
+    req,
+    "tiktok_oauth_state"
+  );
 
-  if (!state || !savedState || state !== savedState) {
-    return res.status(400).send("Invalid OAuth state");
+  if (
+    !state ||
+    !savedState ||
+    state !== savedState
+  ) {
+    return res
+      .status(400)
+      .send("Invalid OAuth state");
   }
 
   // Xác định Sandbox hay Production
-  const mode = getCookie(req, "tiktok_oauth_mode") || "production";
+  const mode =
+    getCookie(req, "tiktok_oauth_mode") ||
+    "production";
 
   const clientKey =
     mode === "sandbox"
@@ -70,7 +115,10 @@ module.exports = async (req, res) => {
     "https://phong-affiliate-ai.vercel.app/api/tiktok/callback";
 
   try {
-    // Đổi authorization code lấy access token
+    // ==========================================
+    // 1. Đổi authorization code lấy access token
+    // ==========================================
+
     const body = new URLSearchParams({
       client_key: clientKey,
       client_secret: clientSecret,
@@ -84,121 +132,147 @@ module.exports = async (req, res) => {
       {
         method: "POST",
         headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
+          "Content-Type":
+            "application/x-www-form-urlencoded",
           "Cache-Control": "no-cache",
         },
         body: body.toString(),
       }
     );
 
-    const tokenData = await tokenResponse.json();
+    const tokenData =
+      await tokenResponse.json();
 
-    if (!tokenResponse.ok || tokenData.error) {
-      console.error("TikTok token error:", tokenData);
+    if (
+      !tokenResponse.ok ||
+      tokenData.error
+    ) {
+      console.error(
+        "TikTok token error:",
+        tokenData
+      );
 
       return res.status(400).json({
         success: false,
-        message: "TikTok token exchange failed",
+        message:
+          "TikTok token exchange failed",
         mode,
         error: tokenData,
       });
     }
 
-    console.log("TikTok OAuth successful:", {
-      mode,
-      open_id: tokenData.open_id,
-      scope: tokenData.scope,
-      expires_in: tokenData.expires_in,
-    });
+    console.log(
+      "TikTok OAuth successful:",
+      {
+        mode,
+        open_id: tokenData.open_id,
+        scope: tokenData.scope,
+        expires_in: tokenData.expires_in,
+      }
+    );
 
+    // ==========================================
+    // 2. Lấy Creator Info
+    // ==========================================
 
-    // Kiểm tra Creator Info
-const creatorInfoResponse = await fetch(
-  "https://open.tiktokapis.com/v2/post/publish/creator_info/query/",
-  {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${tokenData.access_token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({}),
-  }
-);
-
-const creatorInfoData = await creatorInfoResponse.json();
-
-console.log("TikTok Creator Info:", creatorInfoData);
-
-if (!creatorInfoResponse.ok || creatorInfoData.error?.code !== "ok") { 
-  return res.status(400).json({
-    success: false,
-    message: "TikTok Creator Info failed",
-    mode,
-    error: creatorInfoData,
-  });
-}
-    
-        // Tạo session mã hóa để các endpoint TikTok khác
-    // có thể sử dụng access token mà không đưa token ra trình duyệt.
-    const crypto = require("crypto");
-
-    function encryptSession(data, secret) {
-      const key = crypto
-        .createHash("sha256")
-        .update(secret)
-        .digest();
-
-      const iv = crypto.randomBytes(12);
-
-      const cipher = crypto.createCipheriv(
-        "aes-256-gcm",
-        key,
-        iv
+    const creatorInfoResponse =
+      await fetch(
+        "https://open.tiktokapis.com/v2/post/publish/creator_info/query/",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${tokenData.access_token}`,
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({}),
+        }
       );
 
-      const encrypted = Buffer.concat([
-        cipher.update(JSON.stringify(data), "utf8"),
-        cipher.final(),
-      ]);
+    const creatorInfoData =
+      await creatorInfoResponse.json();
 
-      const tag = cipher.getAuthTag();
+    console.log(
+      "TikTok Creator Info:",
+      creatorInfoData
+    );
 
-      return [
-        iv.toString("base64url"),
-        tag.toString("base64url"),
-        encrypted.toString("base64url"),
-      ].join(".");
+    if (
+      !creatorInfoResponse.ok ||
+      creatorInfoData.error?.code !== "ok"
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "TikTok Creator Info failed",
+        mode,
+        error: creatorInfoData,
+      });
     }
+
+    // ==========================================
+    // 3. Tạo session mã hóa
+    // ==========================================
 
     const session = encryptSession(
       {
         mode,
-        access_token: tokenData.access_token,
+        access_token:
+          tokenData.access_token,
         open_id: tokenData.open_id,
         expires_at:
           Date.now() +
-          Number(tokenData.expires_in || 86400) * 1000,
+          Number(
+            tokenData.expires_in || 86400
+          ) *
+            1000,
       },
       clientSecret
     );
 
-    // Xóa OAuth state cookies + lưu session TikTok mã hóa
+    // ==========================================
+    // 4. Lưu session vào HttpOnly cookie
+    // ==========================================
+
+    const sessionMaxAge = Math.max(
+      300,
+      Number(
+        tokenData.expires_in || 86400
+      )
+    );
+
     res.setHeader("Set-Cookie", [
       "tiktok_oauth_state=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0",
+
       "tiktok_oauth_mode=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0",
-      `tiktok_session=${session}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${Math.max(
-        300,
-        Number(tokenData.expires_in || 86400)
-      )}`,
+
+      `tiktok_session=${session}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${sessionMaxAge}`,
     ]);
+
+    // ==========================================
+    // 5. Hiển thị kết quả
+    // ==========================================
+
+    const creator =
+      creatorInfoData.data || {};
 
     return res.status(200).send(`
       <!DOCTYPE html>
+
       <html lang="vi">
+
       <head>
         <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Phong Affiliate AI - TikTok Connected</title>
+
+        <meta
+          name="viewport"
+          content="width=device-width, initial-scale=1.0"
+        >
+
+        <title>
+          Phong Affiliate AI - TikTok Connected
+        </title>
+
         <style>
           body {
             font-family: Arial, sans-serif;
@@ -234,32 +308,106 @@ if (!creatorInfoResponse.ok || creatorInfoData.error?.code !== "ok") {
       </head>
 
       <body>
+
         <div class="success">
           Đã kết nối TikTok thành công
         </div>
 
         <p>
-          Phong Affiliate AI đã nhận được quyền truy cập từ TikTok.
+          Phong Affiliate AI đã nhận được
+          quyền truy cập từ TikTok.
         </p>
 
         <div class="info">
-          <strong>Môi trường:</strong> ${mode}<br><br>
-          <strong>TikTok Open ID:</strong> ${tokenData.open_id || "N/A"}<br><br>
-          <strong>Scope:</strong> ${tokenData.scope || "N/A"}<br><br>
-          <strong>Creator:</strong> ${
-            creatorInfoData.data?.creator_username || "N/A"
-          }<br><br>
-          <strong>Access Token:</strong> Đã nhận<br><br>
-          <strong>Refresh Token:</strong> Đã nhận
+
+          <strong>Môi trường:</strong>
+          ${mode}
+
+          <br><br>
+
+          <strong>TikTok Open ID:</strong>
+          ${tokenData.open_id || "N/A"}
+
+          <br><br>
+
+          <strong>Scope:</strong>
+          ${tokenData.scope || "N/A"}
+
+          <br><br>
+
+          <strong>Creator Username:</strong>
+          ${creator.creator_username || "N/A"}
+
+          <br><br>
+
+          <strong>Creator Nickname:</strong>
+          ${creator.creator_nickname || "N/A"}
+
+          <br><br>
+
+          <strong>Access Token:</strong>
+          Đã nhận
+
+          <br><br>
+
+          <strong>Refresh Token:</strong>
+          Đã nhận
+
+          <br><br>
+
+          <strong>Privacy Options:</strong>
+          ${
+            Array.isArray(
+              creator.privacy_level_options
+            )
+              ? creator.privacy_level_options.join(
+                  ", "
+                )
+              : "N/A"
+          }
+
+          <br><br>
+
+          <strong>Thời lượng tối đa:</strong>
+          ${
+            creator.max_video_post_duration_sec ||
+            "N/A"
+          }
+          giây
+
         </div>
 
         <p>
-          Kết nối TikTok hoàn tất. Có thể bắt đầu đăng video.
+          Kết nối TikTok hoàn tất.
         </p>
+
+        <br>
 
         <a href="/api/tiktok/post">
           Đăng video TikTok
         </a>
+
+        <br><br>
+
+        <a href="/">
+          Quay lại Phong Affiliate AI
+        </a>
+
       </body>
+
       </html>
     `);
+
+  } catch (err) {
+    console.error(
+      "TikTok OAuth error:",
+      err
+    );
+
+    return res
+      .status(500)
+      .send(
+        "TikTok OAuth server error"
+      );
+  }
+};
