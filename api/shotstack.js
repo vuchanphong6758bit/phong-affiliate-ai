@@ -84,7 +84,7 @@ function buildEdit(body) {
 }
 
 async function shotstackFetch(path, options = {}) {
-  const base = process.env.SHOTSTACK_API_BASE || "https://api.shotstack.io/edit/v1";
+  const base = process.env.SHOTSTACK_API_BASE || "https://api.shotstack.io/v1";
   return fetch(`${base}${path}`, {
     ...options,
     headers: {
@@ -111,7 +111,13 @@ module.exports = async (req, res) => {
       if (!body.render_id) return res.status(400).json({ success: false, message: "Thiếu render_id." });
       const response = await shotstackFetch(`/render/${encodeURIComponent(body.render_id)}`);
       const data = await response.json();
-      return res.status(response.ok ? 200 : response.status).json({ success: response.ok, ...data });
+      return res.status(response.ok ? 200 : response.status).json({
+        success: response.ok,
+        render_id: body.render_id,
+        status: data.response?.status || data.status,
+        url: data.response?.url || data.url || null,
+        ...data,
+      });
     }
 
     if (!body.source_url && !body.video_url) return res.status(400).json({ success: false, message: "Thiếu source_url." });
