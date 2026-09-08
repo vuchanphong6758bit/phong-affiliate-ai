@@ -68,11 +68,15 @@ async function creatorInfo(accessToken) {
 function assertVideoUrl(rawUrl) {
   const parsed = new URL(String(rawUrl));
   if (parsed.protocol !== "https:") throw new Error("video_url phải sử dụng HTTPS.");
-  const allowedHosts = ["backblazeb2.com", "f002.backblazeb2.com"];
-  const isBackblaze = allowedHosts.some(
+  const allowedHosts = [
+    "backblazeb2.com",
+    "f002.backblazeb2.com",
+    "shotstack-api-v1-output.s3-ap-southeast-2.amazonaws.com",
+  ];
+  const isAllowed = allowedHosts.some(
     (host) => parsed.hostname === host || parsed.hostname.endsWith(`.${host}`)
   );
-  if (!isBackblaze) throw new Error("Video host không được phép.");
+  if (!isAllowed) throw new Error("Video host không được phép.");
   return parsed.toString();
 }
 
