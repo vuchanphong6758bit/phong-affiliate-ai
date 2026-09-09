@@ -72,6 +72,8 @@ function assertVideoUrl(rawUrl) {
     "backblazeb2.com",
     "f002.backblazeb2.com",
     "shotstack-api-v1-output.s3-ap-southeast-2.amazonaws.com",
+    "github.com",
+    "release-assets.githubusercontent.com",
   ];
   const isAllowed = allowedHosts.some(
     (host) => parsed.hostname === host || parsed.hostname.endsWith(`.${host}`)
