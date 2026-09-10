@@ -88,7 +88,7 @@ jobs:
           Dialogue: 0,0:00:26.00,0:00:30.00,CTA,,0,0,0,,Xem sản phẩm ở TikTok Shop
           ASS
           ffmpeg -y -f lavfi -i 'testsrc2=size=1280x720:rate=30:duration=30' -vf "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,subtitles=/tmp/pfai/captions.ass:fontsdir=/usr/share/fonts/truetype/noto" -c:v libx264 -preset veryfast -crf 26 -pix_fmt yuv420p -movflags +faststart -an /tmp/pfai/test.mp4
-          ffprobe -v error -show_entries format=duration,size:stream=width,height,codec_name,pix_fmt -of json /tmp/pfai/probe.json > /tmp/pfai/probe.json
+          ffprobe -v error -show_entries format=duration,size:stream=width,height,codec_name,pix_fmt -of json /tmp/pfai/test.mp4 > /tmp/pfai/probe.json
           python3 - <<'PY'
           import json
           p=json.load(open('/tmp/pfai/probe.json'))
@@ -220,6 +220,7 @@ jobs:
           PUBLISH_ID=$(cat /tmp/pfai/publish_id)
           POST_ID=$(python3 -c "import json; d=json.load(open('/tmp/pfai/status.json')); print((d.get('publicly_available_post_id') or [''])[0])")
           STATUS=$(python3 -c "import json; print(json.load(open('/tmp/pfai/status.json')).get('status',''))")
+          export POST_ID STATUS
           python3 - <<'PY' > /tmp/pfai/history.json
           import json, os
           print(json.dumps({
