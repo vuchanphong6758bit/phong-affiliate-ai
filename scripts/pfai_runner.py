@@ -32,13 +32,11 @@ def build_learning_context():
     session = app.google_auth()
     if not session:
         return 'HỌC TỪ KẾT QUẢ: Chưa có quyền ghi/đọc dữ liệu riêng; không được giả định có dữ liệu hiệu quả.'
-
     title = app.sheet_title_from_gid(session, app.TAB_IDS['CONTENT'], 'CONTENT')
     values = app.sheets_values(session, title, app.TAB_IDS['CONTENT'])
     rows = app.rowdicts(values)
     if not rows:
         return 'HỌC TỪ KẾT QUẢ: Chưa có lịch sử CONTENT đủ dữ liệu. Hãy ưu tiên thử nghiệm đa dạng và ghi nhận kết quả.'
-
     metrics = {
         'views': ['Views', 'View_Count', 'View Count', 'Lượt xem', 'Views_Count'],
         'likes': ['Likes', 'Like_Count', 'Like Count', 'Lượt thích'],
@@ -51,35 +49,27 @@ def build_learning_context():
         'watch': ['Average_Watch_Time', 'Avg_Watch_Time', 'Watch_Time', 'Thời gian xem TB'],
         'completion': ['Completion_Rate', 'Video_Completion_Rate', 'Tỷ lệ xem hết'],
     }
-
     enriched = []
     for r in rows:
         m = {k: num(first_value(r, a)) for k, a in metrics.items()}
         if any(v is not None for v in m.values()):
             enriched.append((r, m))
-
     if not enriched:
-        return (
-            'HỌC TỪ KẾT QUẢ: Chưa tìm thấy cột số liệu hiệu quả (Views/Likes/Clicks/Orders/Commission/GMV/Watch/Completion) '
-            'trong CONTENT. Không được giả vờ đã học. Hiện tại chỉ dùng tín hiệu thị trường; khi số liệu được ghi vào CONTENT, '
-            'hãy tự động dùng chúng cho các lần sau.'
-        )
-
+        return ('HỌC TỪ KẾT QUẢ: Chưa tìm thấy cột số liệu hiệu quả (Views/Likes/Clicks/Orders/Commission/GMV/Watch/Completion) '
+                'trong CONTENT. Không được giả vờ đã học. Hiện tại chỉ dùng tín hiệu thị trường; khi số liệu được ghi vào CONTENT, '
+                'hãy tự động dùng chúng cho các lần sau.')
     def avg(key):
         vals = [m[key] for _, m in enriched if m[key] is not None]
         return statistics.mean(vals) if vals else None
-
     lines = [f'HỌC TỪ KẾT QUẢ: Có {len(enriched)} nội dung đã có ít nhất một chỉ số hiệu quả.']
     for k in metrics:
         a = avg(k)
         if a is not None:
             lines.append(f'- Trung bình {k}: {a:.2f}')
-
     maxes = {}
     for key in ('views', 'likes', 'comments', 'shares', 'clicks', 'orders', 'commission', 'gmv'):
         vals = [m[key] for _, m in enriched if m[key] is not None and m[key] >= 0]
         maxes[key] = max(vals) if vals else 0
-
     scored = []
     for r, m in enriched:
         score = 0.0
@@ -91,18 +81,16 @@ def build_learning_context():
                 used += w
         if used:
             scored.append((score / used, r, m))
-
     scored.sort(key=lambda x: x[0], reverse=True)
     winners = scored[:5]
     if winners:
-        lines.append('Nội dung/ sản phẩm đang thắng theo dữ liệu thực tế:')
+        lines.append('Nội dung/sản phẩm đang thắng theo dữ liệu thực tế:')
         for s, r, m in winners:
             name = first_value(r, ['Product', 'Product_Name', 'Tên sản phẩm', 'Name']) or '?'
             hook = first_value(r, ['Hook', 'HOOK']) or ''
             title = first_value(r, ['Title', 'Tiêu đề']) or ''
             category = first_value(r, ['Category', 'Danh mục']) or ''
             lines.append(f'- {name} | category={category} | score={s:.3f} | orders={m.get("orders")} | commission={m.get("commission")} | views={m.get("views")} | hook={hook[:120]} | title={title[:120]}')
-
     cat_scores = {}
     for s, r, m in scored:
         cat = first_value(r, ['Category', 'Danh mục']) or 'unknown'
@@ -110,7 +98,6 @@ def build_learning_context():
     if cat_scores:
         ranked_cats = sorted(((statistics.mean(v), k, len(v)) for k, v in cat_scores.items()), reverse=True)[:5]
         lines.append('Danh mục có tín hiệu tốt: ' + '; '.join(f'{k} ({s:.3f}, n={n})' for s, k, n in ranked_cats))
-
     lines.append('Quy tắc tối ưu lần sau:')
     lines.append('- Tăng xác suất chọn sản phẩm/cách diễn đạt có bằng chứng tạo đơn hoặc hoa hồng; không tối ưu chỉ theo lượt xem.')
     lines.append('- Giữ khoảng 20-30% thử nghiệm sản phẩm/góc nội dung mới để tránh học lệch vào một trend ngắn hạn.')
@@ -138,20 +125,8 @@ def main():
                 app.MODEL = previous_model
 
     app.gemini = learned_gemini
-
-    # Production safety switch: the daily affiliate workflow must never silently
-    # fall back to TikTok sandbox. Keep SELF_ONLY because TikTok restricts
-    # unaudited Direct Post clients to private viewing.
-    original_pick = app.pick
-    def production_pick(row, *names):
-        normalized = {norm(n) for n in names}
-        if 'mode' in normalized or 'tiktokmode' in normalized:
-            return 'production'
-        if 'privacylevel' in normalized:
-            return 'SELF_ONLY'
-        return original_pick(row, *names)
-    app.pick = production_pick
-
+    # TikTok mode/privacy are controlled centrally by workflow environment.
+    # Do not override them here with stale account-row defaults.
     app.main()
 
 
