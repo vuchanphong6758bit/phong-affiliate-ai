@@ -10,6 +10,7 @@ on:
     paths:
       - '.github/workflows/pfai-daily-affiliate.yml'
       - 'scripts/pfai_daily.py'
+      - 'scripts/pfai_runner.py'
       - 'scripts/pfai_update_content.py'
 
 permissions:
@@ -21,7 +22,7 @@ concurrency:
 
 env:
   GOOGLE_SHEET_ID: '1LUM9KJtQLdfBYWCxKf0Q_VV5TvfnSG2ZtpH-M_3W_20'
-  GEMINI_MODEL: 'gemini-2.5-flash'
+  GEMINI_MODEL: 'gemini-3.6-flash'
   TIKTOK_MODE: 'sandbox'
   TIKTOK_PRIVACY_LEVEL: 'SELF_ONLY'
 
@@ -51,12 +52,12 @@ jobs:
           test -n "$TIKTOK_AUTOMATION_KEY" || { echo 'MISSING_SECRET: TIKTOK_AUTOMATION_KEY'; exit 1; }
           echo 'PASS: required secrets are present.'
 
-      - name: Select account/product and create content
+      - name: Learn from previous results, select product and create content
         id: prepare
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: python3 scripts/pfai_daily.py
+        run: python3 scripts/pfai_runner.py
 
       - name: Render vertical video
         id: render
@@ -73,8 +74,7 @@ jobs:
           mkdir -p /tmp/pfai
           python3 - <<'PY'
           import os
-          def esc(s):
-              return str(s or '').replace('\\','\\\\').replace('{','\\{').replace('}','\\}').replace('\n','\\N')
+          def esc(s): return str(s or '').replace('\\','\\\\').replace('{','\\{').replace('}','\\}').replace('\n','\\N')
           d=max(10,min(60,float(os.environ.get('DURATION','30'))))
           hook=esc(os.environ.get('HOOK')); body=esc(os.environ.get('BODY')); cta=esc(os.environ.get('CTA'))
           def ts(sec): return f'{int(sec//60)}:{sec%60:05.2f}'
