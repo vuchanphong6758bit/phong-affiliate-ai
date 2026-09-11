@@ -12,9 +12,6 @@ function getAutomationKey(req) {
   return req.headers["x-tiktok-automation-key"] || req.headers["x-api-key"] || "";
 }
 
-// Real publishing is now the default for this production workflow. Sandbox is no longer
-// accepted through the automation endpoint so a successful response cannot be mistaken
-// for a real TikTok post.
 function getMode(req, body) {
   const requested = body?.mode || req.headers["x-tiktok-mode"] || "production";
   return requested === "production" ? "production" : "production";
@@ -26,9 +23,27 @@ function config(mode) {
     : { clientKey: process.env.TIKTOK_SANDBOX_CLIENT_KEY, clientSecret: process.env.TIKTOK_SANDBOX_CLIENT_SECRET };
 }
 
+function configDiagnostics(mode) {
+  const cfg = config(mode);
+  return {
+    mode,
+    tiktokClientKey: Boolean(cfg.clientKey),
+    tiktokClientSecret: Boolean(cfg.clientSecret),
+    databaseUrl: Boolean(process.env.DATABASE_URL),
+    automationKey: Boolean(process.env.TIKTOK_AUTOMATION_KEY),
+  };
+}
+
 async function getFreshAccessToken(mode) {
   const cfg = config(mode);
-  if (!cfg.clientKey || !cfg.clientSecret) throw new Error(`TikTok ${mode} client credentials are missing.`);
+  if (!cfg.clientKey || !cfg.clientSecret) {
+    const missing = [];
+    if (!cfg.clientKey) missing.push("TIKTOK_CLIENT_KEY");
+    if (!cfg.clientSecret) missing.push("TIKTOK_CLIENT_SECRET");
+    throw new Error(`TikTok ${mode} client credentials are missing: ${missing.join(", ")}.`);
+  }
+
+  if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is not configured in Vercel; TikTok OAuth tokens cannot be loaded.");
 
   const stored = await getToken(mode, cfg.clientSecret);
   if (!stored) throw new Error(`TikTok ${mode} is not connected yet. Open /api/tiktok/auth?mode=${mode} once to authorize the account.`);
@@ -238,7 +253,7 @@ module.exports = async (req, res) => {
       creator_nickname: result.data.creator_nickname,
     });
   } catch (error) {
-    console.error("TikTok automation error:", error.message);
-    return res.status(500).json({ success: false, message: error.message || "TikTok automation server error." });
+    console.error("TikTok automation error:", error.message, configDiagnostics(mode));
+    return res.status(500).json({ success: false, message: error.message || "TikTok automation server error.", diagnostics: configDiagnostics(mode) });
   }
 };
