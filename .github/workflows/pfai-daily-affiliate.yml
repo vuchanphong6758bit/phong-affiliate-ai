@@ -1,0 +1,188 @@
+name: PFAI Daily Affiliate
+run-name: PFAI daily ${{ github.run_id }}
+
+on:
+  schedule:
+    - cron: '0 7 * * *'
+      timezone: 'Asia/Ho_Chi_Minh'
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/pfai-daily-affiliate.yml'
+      - 'scripts/pfai_daily.py'
+      - 'scripts/pfai_update_content.py'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pfai-daily-affiliate
+  cancel-in-progress: false
+
+env:
+  GOOGLE_SHEET_ID: '1LUM9KJtQLdfBYWCxKf0Q_VV5TvfnSG2ZtpH-M_3W_20'
+  GEMINI_MODEL: 'gemini-2.5-flash'
+  TIKTOK_MODE: 'sandbox'
+  TIKTOK_PRIVACY_LEVEL: 'SELF_ONLY'
+
+jobs:
+  affiliate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-noto-core
+          python3 -m pip install --quiet google-auth
+
+      - name: Preflight secrets
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          TIKTOK_AUTOMATION_KEY: ${{ secrets.TIKTOK_AUTOMATION_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$GOOGLE_SERVICE_ACCOUNT_JSON" || { echo 'MISSING_SECRET: GOOGLE_SERVICE_ACCOUNT_JSON'; exit 1; }
+          test -n "$GEMINI_API_KEY" || { echo 'MISSING_SECRET: GEMINI_API_KEY'; exit 1; }
+          test -n "$TIKTOK_AUTOMATION_KEY" || { echo 'MISSING_SECRET: TIKTOK_AUTOMATION_KEY'; exit 1; }
+          echo 'PASS: required secrets are present.'
+
+      - name: Select account/product and create content
+        id: prepare
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python3 scripts/pfai_daily.py
+
+      - name: Render vertical video
+        id: render
+        env:
+          TITLE: ${{ steps.prepare.outputs.title }}
+          HOOK: ${{ steps.prepare.outputs.hook }}
+          BODY: ${{ steps.prepare.outputs.body }}
+          CTA: ${{ steps.prepare.outputs.cta }}
+          IMAGE_URL: ${{ steps.prepare.outputs.image_url }}
+          DURATION: ${{ steps.prepare.outputs.duration }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/pfai
+          python3 - <<'PY'
+          import os
+          def esc(s):
+              return str(s or '').replace('\\','\\\\').replace('{','\\{').replace('}','\\}').replace('\n','\\N')
+          d=max(10,min(60,float(os.environ.get('DURATION','30'))))
+          hook=esc(os.environ.get('HOOK')); body=esc(os.environ.get('BODY')); cta=esc(os.environ.get('CTA'))
+          def ts(sec): return f'{int(sec//60)}:{sec%60:05.2f}'
+          body_end=max(6,d-4)
+          ass=f'''[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Hook,Noto Sans,74,&H00FFFFFF,&H00FFFFFF,&H00111111,&H90000000,1,0,0,0,100,100,0,0,1,4,2,8,80,80,160,1\nStyle: Body,Noto Sans,52,&H00FFFFFF,&H00FFFFFF,&H00111111,&H90000000,0,0,0,0,100,100,0,0,1,3,2,5,90,90,180,1\nStyle: CTA,Noto Sans,58,&H00FFFFFF,&H00FFFFFF,&H00111111,&H90000000,1,0,0,0,100,100,0,0,1,4,2,2,90,90,180,1\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:00.00,0:00:04.00,Hook,,0,0,0,,{hook}\nDialogue: 0,0:00:04.00,0:{ts(body_end)},Body,,0,0,0,,{body}\nDialogue: 0,0:{ts(body_end)},0:{ts(d)},CTA,,0,0,0,,{cta}\n'''
+          open('/tmp/pfai/captions.ass','w',encoding='utf-8').write(ass)
+          PY
+          if [ -n "$IMAGE_URL" ]; then
+            case "$IMAGE_URL" in https://*) ;; *) echo 'image_url must use HTTPS'; exit 1;; esac
+            curl --fail --location --max-time 30 --output /tmp/pfai/source.jpg "$IMAGE_URL"
+            ffmpeg -y -loop 1 -i /tmp/pfai/source.jpg -t "$DURATION" -vf "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,subtitles=/tmp/pfai/captions.ass:fontsdir=/usr/share/fonts/truetype/noto" -c:v libx264 -preset veryfast -crf 26 -pix_fmt yuv420p -movflags +faststart -an /tmp/pfai/video.mp4
+          else
+            ffmpeg -y -f lavfi -i "testsrc2=size=1280x720:rate=30:duration=$DURATION" -vf "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,subtitles=/tmp/pfai/captions.ass:fontsdir=/usr/share/fonts/truetype/noto" -c:v libx264 -preset veryfast -crf 26 -pix_fmt yuv420p -movflags +faststart -an /tmp/pfai/video.mp4
+          fi
+          ffprobe -v error -show_entries format=duration,size:stream=width,height,codec_name,pix_fmt -of json /tmp/pfai/video.mp4 > /tmp/pfai/probe.json
+          python3 - <<'PY'
+          import json
+          p=json.load(open('/tmp/pfai/probe.json')); s=p['streams'][0]
+          size=int(p['format']['size']); dur=float(p['format']['duration'])
+          assert s['codec_name']=='h264' and s['width']==1080 and s['height']==1920 and s['pix_fmt']=='yuv420p'
+          assert size <= 64*1024*1024
+          print(f'PASS video: {dur:.2f}s {size/1024/1024:.2f}MiB 1080x1920 H264')
+          PY
+
+      - name: Publish video as GitHub release asset
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="pfai-video-${GITHUB_RUN_ID}"
+          gh release create "$TAG" /tmp/pfai/video.mp4 --repo "$GITHUB_REPOSITORY" --title "PFAI video $GITHUB_RUN_ID" --notes "Generated by PFAI daily affiliate pipeline."
+          echo "video_url=https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/video.mp4" >> "$GITHUB_OUTPUT"
+
+      - name: Send video to TikTok Direct Post
+        id: tiktok
+        env:
+          TIKTOK_AUTOMATION_KEY: ${{ secrets.TIKTOK_AUTOMATION_KEY }}
+          MODE: ${{ steps.prepare.outputs.mode }}
+          PRIVACY: ${{ steps.prepare.outputs.privacy_level }}
+          TITLE: ${{ steps.prepare.outputs.title }}
+          VIDEO_URL: ${{ steps.release.outputs.video_url }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > /tmp/pfai/request.json
+          import json, os
+          print(json.dumps({'mode':os.environ['MODE'],'privacy_level':os.environ['PRIVACY'],'title':os.environ['TITLE'],'video_url':os.environ['VIDEO_URL'],'is_aigc':True,'consent':True}))
+          PY
+          curl --fail --silent --show-error -X POST 'https://phong-affiliate-ai.vercel.app/api/tiktok/automation' -H 'Content-Type: application/json' -H "x-api-key: $TIKTOK_AUTOMATION_KEY" --data-binary @/tmp/pfai/request.json > /tmp/pfai/init.json
+          python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/pfai/init.json'))
+          assert d.get('success') is True and d.get('publish_id'), d
+          open('/tmp/pfai/publish_id','w').write(d['publish_id'])
+          print('PASS TikTok init:', d['publish_id'])
+          PY
+
+      - name: Poll TikTok status
+        id: status
+        env:
+          TIKTOK_AUTOMATION_KEY: ${{ secrets.TIKTOK_AUTOMATION_KEY }}
+          MODE: ${{ steps.prepare.outputs.mode }}
+        run: |
+          set -euo pipefail
+          PUBLISH_ID=$(cat /tmp/pfai/publish_id)
+          for i in $(seq 1 18); do
+            curl --fail --silent --show-error -X POST 'https://phong-affiliate-ai.vercel.app/api/tiktok/automation' -H 'Content-Type: application/json' -H "x-api-key: $TIKTOK_AUTOMATION_KEY" --data "{\"action\":\"status\",\"mode\":\"$MODE\",\"publish_id\":\"$PUBLISH_ID\"}" > /tmp/pfai/status.json
+            STATUS=$(python3 -c "import json; print(json.load(open('/tmp/pfai/status.json')).get('status',''))")
+            echo "TikTok status [$i/18]: $STATUS"
+            case "$STATUS" in
+              PUBLISH_COMPLETE) exit 0;;
+              FAILED|SEND_TO_USER_INBOX_FAILED|PROCESSING_FAILED) cat /tmp/pfai/status.json; exit 1;;
+            esac
+            sleep 10
+          done
+          cat /tmp/pfai/status.json
+          exit 1
+
+      - name: Save TikTok history
+        if: ${{ success() }}
+        env:
+          TIKTOK_AUTOMATION_KEY: ${{ secrets.TIKTOK_AUTOMATION_KEY }}
+          MODE: ${{ steps.prepare.outputs.mode }}
+          TITLE: ${{ steps.prepare.outputs.title }}
+          VIDEO_URL: ${{ steps.release.outputs.video_url }}
+          PRIVACY: ${{ steps.prepare.outputs.privacy_level }}
+        run: |
+          set -euo pipefail
+          PUBLISH_ID=$(cat /tmp/pfai/publish_id)
+          POST_ID=$(python3 -c "import json; d=json.load(open('/tmp/pfai/status.json')); print((d.get('publicly_available_post_id') or [''])[0])")
+          STATUS=$(python3 -c "import json; print(json.load(open('/tmp/pfai/status.json')).get('status',''))")
+          python3 - <<'PY' > /tmp/pfai/history.json
+          import json,os
+          print(json.dumps({'mode':os.environ['MODE'],'publish_id':open('/tmp/pfai/publish_id').read().strip(),'publicly_available_post_id':os.environ.get('POST_ID',''),'title':os.environ['TITLE'],'video_url':os.environ['VIDEO_URL'],'privacy_level':os.environ['PRIVACY'],'status':os.environ['STATUS']}))
+          PY
+          curl --fail --silent --show-error -X POST 'https://phong-affiliate-ai.vercel.app/api/tiktok/history' -H 'Content-Type: application/json' -H "x-api-key: $TIKTOK_AUTOMATION_KEY" --data-binary @/tmp/pfai/history.json > /tmp/pfai/history-response.json
+          cat /tmp/pfai/history-response.json
+
+      - name: Update Google Sheet result
+        if: ${{ always() && steps.prepare.outcome == 'success' }}
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          PUBLISH_ID: ${{ steps.tiktok.outcome == 'success' && 'set' || '' }}
+          VIDEO_STATUS: ${{ steps.render.outcome == 'success' && 'VIDEO_READY' || 'VIDEO_FAILED' }}
+          PUBLISH_STATUS: ${{ steps.status.outcome == 'success' && 'PUBLISHED' || 'FAILED' }}
+          ERROR_MESSAGE: ${{ steps.status.outcome != 'success' && 'TikTok/video pipeline failed; inspect GitHub Actions logs.' || '' }}
+        run: |
+          set +e
+          if [ -f /tmp/pfai/publish_id ]; then export PUBLISH_ID="$(cat /tmp/pfai/publish_id)"; fi
+          if [ -f /tmp/pfai/status.json ]; then export POST_ID="$(python3 -c "import json; d=json.load(open('/tmp/pfai/status.json')); print((d.get('publicly_available_post_id') or [''])[0])" 2>/dev/null)"; fi
+          python3 scripts/pfai_update_content.py
