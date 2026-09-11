@@ -23,7 +23,7 @@ concurrency:
 env:
   GOOGLE_SHEET_ID: '1LUM9KJtQLdfBYWCxKf0Q_VV5TvfnSG2ZtpH-M_3W_20'
   GEMINI_MODEL: 'gemini-3.6-flash'
-  TIKTOK_MODE: 'sandbox'
+  TIKTOK_MODE: 'production'
   TIKTOK_PRIVACY_LEVEL: 'SELF_ONLY'
 
 jobs:
@@ -119,6 +119,7 @@ jobs:
           VIDEO_URL: ${{ steps.release.outputs.video_url }}
         run: |
           set -euo pipefail
+          echo "TikTok target mode=$MODE privacy=$PRIVACY"
           python3 - <<'PY' > /tmp/pfai/request.json
           import json, os
           print(json.dumps({'mode':os.environ['MODE'],'privacy_level':os.environ['PRIVACY'],'title':os.environ['TITLE'],'video_url':os.environ['VIDEO_URL'],'is_aigc':True,'consent':True}))
@@ -145,7 +146,15 @@ jobs:
             STATUS=$(python3 -c "import json; print(json.load(open('/tmp/pfai/status.json')).get('status',''))")
             echo "TikTok status [$i/18]: $STATUS"
             case "$STATUS" in
-              PUBLISH_COMPLETE) exit 0;;
+              PUBLISH_COMPLETE)
+                POST_ID=$(python3 -c "import json; d=json.load(open('/tmp/pfai/status.json')); print((d.get('publicly_available_post_id') or [''])[0])")
+                if [ -n "$POST_ID" ]; then
+                  echo "PASS PUBLIC TikTok post: $POST_ID"
+                  exit 0
+                fi
+                echo "TikTok reports PUBLISH_COMPLETE but no public post id; this is not yet a public post."
+                exit 1
+                ;;
               FAILED|SEND_TO_USER_INBOX_FAILED|PROCESSING_FAILED) cat /tmp/pfai/status.json; exit 1;;
             esac
             sleep 10
@@ -185,4 +194,4 @@ jobs:
           set +e
           if [ -f /tmp/pfai/publish_id ]; then export PUBLISH_ID="$(cat /tmp/pfai/publish_id)"; fi
           if [ -f /tmp/pfai/status.json ]; then export POST_ID="$(python3 -c "import json; d=json.load(open('/tmp/pfai/status.json')); print((d.get('publicly_available_post_id') or [''])[0])" 2>/dev/null)"; fi
-          python3 scripts/pfai_update_content.py
+          python3 scripts/pfai_update_content.py || echo 'SHEET UPDATE WARNING: non-blocking; TikTok pipeline result is authoritative.'
