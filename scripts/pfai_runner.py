@@ -128,8 +128,6 @@ def main():
         try:
             return original(enhanced, attempts=attempts)
         except Exception as primary_error:
-            # Do not waste the whole workflow on a transient/model-response failure.
-            # Retry once on the cheaper stable Flash-Lite model. This path is only used after the primary call fails.
             previous_model = app.MODEL
             try:
                 app.MODEL = 'gemini-3.1-flash-lite'
@@ -140,6 +138,20 @@ def main():
                 app.MODEL = previous_model
 
     app.gemini = learned_gemini
+
+    # Production safety switch: the daily affiliate workflow must never silently
+    # fall back to TikTok sandbox. Keep SELF_ONLY because TikTok restricts
+    # unaudited Direct Post clients to private viewing.
+    original_pick = app.pick
+    def production_pick(row, *names):
+        normalized = {norm(n) for n in names}
+        if 'mode' in normalized or 'tiktokmode' in normalized:
+            return 'production'
+        if 'privacylevel' in normalized:
+            return 'SELF_ONLY'
+        return original_pick(row, *names)
+    app.pick = production_pick
+
     app.main()
 
 
