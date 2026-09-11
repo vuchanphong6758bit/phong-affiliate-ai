@@ -75,7 +75,6 @@ def build_learning_context():
         if a is not None:
             lines.append(f'- Trung bình {k}: {a:.2f}')
 
-    # Normalize comparable performance into a ranking score using available metrics.
     maxes = {}
     for key in ('views', 'likes', 'comments', 'shares', 'clicks', 'orders', 'commission', 'gmv'):
         vals = [m[key] for _, m in enriched if m[key] is not None and m[key] >= 0]
@@ -102,12 +101,8 @@ def build_learning_context():
             hook = first_value(r, ['Hook', 'HOOK']) or ''
             title = first_value(r, ['Title', 'Tiêu đề']) or ''
             category = first_value(r, ['Category', 'Danh mục']) or ''
-            orders = m.get('orders')
-            commission = m.get('commission')
-            views = m.get('views')
-            lines.append(f'- {name} | category={category} | score={s:.3f} | orders={orders} | commission={commission} | views={views} | hook={hook[:120]} | title={title[:120]}')
+            lines.append(f'- {name} | category={category} | score={s:.3f} | orders={m.get("orders")} | commission={m.get("commission")} | views={m.get("views")} | hook={hook[:120]} | title={title[:120]}')
 
-    # Product/category aggregates help the scout move budget toward proven demand without fully abandoning exploration.
     cat_scores = {}
     for s, r, m in scored:
         cat = first_value(r, ['Category', 'Danh mục']) or 'unknown'
@@ -127,12 +122,22 @@ def main():
     learning = build_learning_context()
     print(learning)
     original = app.gemini
-    calls = {'n': 0}
 
     def learned_gemini(prompt, attempts=2):
-        calls['n'] += 1
         enhanced = prompt + '\n\n--- BỘ NHỚ HỌC TỪ HIỆU QUẢ CÁC LẦN TRƯỚC ---\n' + learning + '\n--- HẾT BỘ NHỚ ---\n'
-        return original(enhanced, attempts=attempts)
+        try:
+            return original(enhanced, attempts=attempts)
+        except Exception as primary_error:
+            # Do not waste the whole workflow on a transient/model-response failure.
+            # Retry once on the cheaper stable Flash-Lite model. This path is only used after the primary call fails.
+            previous_model = app.MODEL
+            try:
+                app.MODEL = 'gemini-3.1-flash-lite'
+                print(f'GEMINI PRIMARY FAILED: {primary_error}')
+                print('GEMINI FALLBACK: retrying with gemini-3.1-flash-lite to preserve workflow continuity.')
+                return original(enhanced, attempts=1)
+            finally:
+                app.MODEL = previous_model
 
     app.gemini = learned_gemini
     app.main()
