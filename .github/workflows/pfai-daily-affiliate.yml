@@ -124,11 +124,17 @@ jobs:
           import json, os
           print(json.dumps({'mode':os.environ['MODE'],'privacy_level':os.environ['PRIVACY'],'title':os.environ['TITLE'],'video_url':os.environ['VIDEO_URL'],'is_aigc':True,'consent':True}))
           PY
-          curl --fail --silent --show-error -X POST 'https://phong-affiliate-ai.vercel.app/api/tiktok/automation' -H 'Content-Type: application/json' -H "x-api-key: $TIKTOK_AUTOMATION_KEY" --data-binary @/tmp/pfai/request.json > /tmp/pfai/init.json
+          set +e
+          HTTP_CODE=$(curl --silent --show-error -o /tmp/pfai/init.json -w '%{http_code}' -X POST 'https://phong-affiliate-ai.vercel.app/api/tiktok/automation' -H 'Content-Type: application/json' -H "x-api-key: $TIKTOK_AUTOMATION_KEY" --data-binary @/tmp/pfai/request.json)
+          CURL_EXIT=$?
+          set -e
+          echo "TikTok init HTTP=$HTTP_CODE curl_exit=$CURL_EXIT"
+          cat /tmp/pfai/init.json
           python3 - <<'PY'
           import json
           d=json.load(open('/tmp/pfai/init.json'))
-          assert d.get('success') is True and d.get('publish_id'), d
+          if d.get('success') is not True or not d.get('publish_id'):
+              raise SystemExit(f'TikTok init failed: {d}')
           open('/tmp/pfai/publish_id','w').write(d['publish_id'])
           print('PASS TikTok init:', d['publish_id'])
           PY
