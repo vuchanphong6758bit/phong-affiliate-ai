@@ -12,6 +12,7 @@ on:
       - 'scripts/pfai_daily.py'
       - 'scripts/pfai_runner.py'
       - 'scripts/pfai_update_content.py'
+      - 'api/tiktok/automation.js'
 
 permissions:
   contents: write
