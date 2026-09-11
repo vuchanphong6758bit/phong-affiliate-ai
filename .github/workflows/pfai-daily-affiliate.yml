@@ -166,6 +166,7 @@ jobs:
           PUBLISH_ID=$(cat /tmp/pfai/publish_id)
           POST_ID=$(python3 -c "import json; d=json.load(open('/tmp/pfai/status.json')); print((d.get('publicly_available_post_id') or [''])[0])")
           STATUS=$(python3 -c "import json; print(json.load(open('/tmp/pfai/status.json')).get('status',''))")
+          export POST_ID STATUS
           python3 - <<'PY' > /tmp/pfai/history.json
           import json,os
           print(json.dumps({'mode':os.environ['MODE'],'publish_id':open('/tmp/pfai/publish_id').read().strip(),'publicly_available_post_id':os.environ.get('POST_ID',''),'title':os.environ['TITLE'],'video_url':os.environ['VIDEO_URL'],'privacy_level':os.environ['PRIVACY'],'status':os.environ['STATUS']}))
@@ -177,7 +178,6 @@ jobs:
         if: ${{ always() && steps.prepare.outcome == 'success' }}
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
-          PUBLISH_ID: ${{ steps.tiktok.outcome == 'success' && 'set' || '' }}
           VIDEO_STATUS: ${{ steps.render.outcome == 'success' && 'VIDEO_READY' || 'VIDEO_FAILED' }}
           PUBLISH_STATUS: ${{ steps.status.outcome == 'success' && 'PUBLISHED' || 'FAILED' }}
           ERROR_MESSAGE: ${{ steps.status.outcome != 'success' && 'TikTok/video pipeline failed; inspect GitHub Actions logs.' || '' }}
