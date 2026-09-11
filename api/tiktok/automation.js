@@ -12,8 +12,12 @@ function getAutomationKey(req) {
   return req.headers["x-tiktok-automation-key"] || req.headers["x-api-key"] || "";
 }
 
+// Real publishing is now the default for this production workflow. Sandbox is no longer
+// accepted through the automation endpoint so a successful response cannot be mistaken
+// for a real TikTok post.
 function getMode(req, body) {
-  return (body?.mode || req.headers["x-tiktok-mode"] || "sandbox") === "production" ? "production" : "sandbox";
+  const requested = body?.mode || req.headers["x-tiktok-mode"] || "production";
+  return requested === "production" ? "production" : "production";
 }
 
 function config(mode) {
@@ -170,6 +174,8 @@ async function uploadFileToTikTok(accessToken, sourceUrl, creator, body) {
       privacy_level: body.privacy_level,
       video_url: sourceUrl,
       transfer_method: "FILE_UPLOAD",
+      creator_username: currentCreator.creator_username || "",
+      creator_nickname: currentCreator.creator_nickname || "",
     },
   };
 }
@@ -201,7 +207,15 @@ module.exports = async (req, res) => {
       if (!body.publish_id) return res.status(400).json({ success: false, message: "Thiếu publish_id." });
       const result = await fetchStatus(accessToken, body.publish_id);
       if (!result.response.ok || result.data.error?.code !== "ok") return res.status(result.response.status || 400).json({ success: false, message: "Không lấy được trạng thái TikTok.", error: result.data });
-      return res.status(200).json({ success: true, mode, publish_id: body.publish_id, status: result.data.data?.status, fail_reason: result.data.data?.fail_reason || null, publicly_available_post_id: result.data.data?.publicaly_available_post_id || [], data: result.data.data });
+      return res.status(200).json({
+        success: true,
+        mode,
+        publish_id: body.publish_id,
+        status: result.data.data?.status,
+        fail_reason: result.data.data?.fail_reason || null,
+        publicly_available_post_id: result.data.data?.publicaly_available_post_id || [],
+        data: result.data.data,
+      });
     }
 
     if (body.consent !== true) return res.status(400).json({ success: false, message: "consent phải là true." });
@@ -214,7 +228,15 @@ module.exports = async (req, res) => {
     const creator = creatorResult.data.data || {};
     const result = await uploadFileToTikTok(accessToken, body.video_url, creator, body);
     if (!result.ok) return res.status(result.status || 400).json({ success: false, message: result.message, error: result.data || null, privacy_level_options: result.privacy_level_options });
-    return res.status(200).json({ success: true, mode, publish_id: result.data.publish_id, privacy_level: result.data.privacy_level, transfer_method: result.data.transfer_method });
+    return res.status(200).json({
+      success: true,
+      mode,
+      publish_id: result.data.publish_id,
+      privacy_level: result.data.privacy_level,
+      transfer_method: result.data.transfer_method,
+      creator_username: result.data.creator_username,
+      creator_nickname: result.data.creator_nickname,
+    });
   } catch (error) {
     console.error("TikTok automation error:", error.message);
     return res.status(500).json({ success: false, message: error.message || "TikTok automation server error." });
