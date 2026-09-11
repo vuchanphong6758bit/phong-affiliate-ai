@@ -168,12 +168,15 @@ def gemini(prompt, attempts=2):
         try:
             with urllib.request.urlopen(req, timeout=90) as r:
                 data = json.loads(r.read().decode())
+            if not data.get('candidates'):
+                feedback = data.get('promptFeedback') or data.get('error') or data
+                raise RuntimeError(f'Gemini response has no candidates: {json.dumps(feedback, ensure_ascii=False)[:1200]}')
             text = data['candidates'][0]['content']['parts'][0]['text'].strip()
             if text.startswith('```'):
                 text = re.sub(r'^```(?:json)?\s*', '', text)
                 text = re.sub(r'\s*```$', '', text)
             return json.loads(text)
-        except (urllib.error.HTTPError, KeyError, IndexError, json.JSONDecodeError, TypeError) as e:
+        except (urllib.error.HTTPError, KeyError, IndexError, json.JSONDecodeError, TypeError, RuntimeError) as e:
             last_error = e
             if isinstance(e, urllib.error.HTTPError):
                 detail = e.read().decode(errors='replace')
@@ -333,7 +336,6 @@ def main():
     market_data, candidates = discover_market_candidates(existing, today)
     top = candidates[0]
 
-    # Prefer an existing product when the scout can match it. Otherwise add the best new discovery to PRODUCTS.
     by_id = {pid: item for item in existing for pid in [item[2]]}
     product_id = str(top.get('product_id') or '').strip()
     if product_id in by_id:
@@ -356,11 +358,12 @@ def main():
     if not active_accounts:
         raise RuntimeError('NO_ACTIVE_ACCOUNT: ACCOUNTS không có tài khoản hoạt động.')
 
-    # Rotate accounts daily, but product selection is market-score driven rather than simple rotation.
     day_index = int(datetime.now(timezone.utc).strftime('%Y%m%d'))
     a, account_id = active_accounts[day_index % len(active_accounts)]
-    mode = pick(a, 'Mode', 'TikTok_Mode', 'TikTok Mode') or os.environ.get('TIKTOK_MODE', 'sandbox')
-    privacy = pick(a, 'Privacy_Level', 'Privacy Level', 'privacy_level') or os.environ.get('TIKTOK_PRIVACY_LEVEL', 'SELF_ONLY')
+    # Explicit environment values override sheet defaults so production/sandbox
+    # cannot change silently when an account row is stale.
+    mode = os.environ.get('TIKTOK_MODE', '').strip() or pick(a, 'Mode', 'TikTok_Mode', 'TikTok Mode') or 'sandbox'
+    privacy = os.environ.get('TIKTOK_PRIVACY_LEVEL', '').strip() or pick(a, 'Privacy_Level', 'Privacy Level', 'privacy_level') or 'SELF_ONLY'
     duration = pick(p, 'Duration', 'Video_Duration', 'Video Duration') or str(top.get('duration') or '30')
     content_id = f"PFAI-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
 
