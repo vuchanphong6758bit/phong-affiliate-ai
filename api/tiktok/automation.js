@@ -222,6 +222,14 @@ module.exports = async (req, res) => {
   try {
     const accessToken = await getFreshAccessToken(mode);
 
+    if (body.action === "creator_info") {
+      const result = await creatorInfo(accessToken);
+      if (!result.response.ok || result.data.error?.code !== "ok") {
+        return res.status(result.response.status || 400).json({ success: false, message: "TikTok Creator Info failed.", mode, error: result.data });
+      }
+      return res.status(200).json({ success: true, mode, data: result.data.data });
+    }
+
     if (body.action === "status") {
       if (!body.publish_id) return res.status(400).json({ success: false, message: "Thiếu publish_id." });
       const result = await fetchStatus(accessToken, body.publish_id);
