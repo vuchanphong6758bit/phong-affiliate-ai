@@ -25,7 +25,9 @@ env:
   GOOGLE_SHEET_ID: '1LUM9KJtQLdfBYWCxKf0Q_VV5TvfnSG2ZtpH-M_3W_20'
   GEMINI_MODEL: 'gemini-3.6-flash'
   TIKTOK_MODE: 'production'
-  TIKTOK_PRIVACY_LEVEL: 'PUBLIC_TO_EVERYONE'
+  # TikTok currently treats unaudited Direct Post clients as private-only.
+  # Switch to PUBLIC_TO_EVERYONE only after TikTok audit approval.
+  TIKTOK_PRIVACY_LEVEL: 'SELF_ONLY'
 
 jobs:
   affiliate:
@@ -134,6 +136,10 @@ jobs:
           import json
           d=json.load(open('/tmp/pfai/init.json'))
           if d.get('success') is not True or not d.get('publish_id'):
+              msg=d.get('message','unknown error')
+              diagnostics=d.get('diagnostics') or {}
+              if 'not connected yet' in msg.lower():
+                  raise SystemExit('BLOCKER: TikTok production account is not OAuth-connected. Complete Production OAuth once; the workflow will then retry automatically.')
               raise SystemExit(f'TikTok init failed: {d}')
           open('/tmp/pfai/publish_id','w').write(d['publish_id'])
           print('PASS TikTok init:', d['publish_id'])
@@ -153,8 +159,7 @@ jobs:
             case "$STATUS" in
               PUBLISH_COMPLETE)
                 POST_ID=$(python3 -c "import json; d=json.load(open('/tmp/pfai/status.json')); print((d.get('publicly_available_post_id') or [''])[0])")
-                test -n "$POST_ID" || { cat /tmp/pfai/status.json; echo 'FAIL: PUBLISH_COMPLETE without public post id.'; exit 1; }
-                echo "PASS PUBLIC TikTok post: $POST_ID"
+                echo "PASS TikTok publish complete: $POST_ID"
                 exit 0
                 ;;
               FAILED|SEND_TO_USER_INBOX_FAILED|PROCESSING_FAILED) cat /tmp/pfai/status.json; exit 1;;
