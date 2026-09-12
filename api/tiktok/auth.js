@@ -7,10 +7,13 @@ module.exports = async (req, res) => {
 
   const mode = req.query.mode === "sandbox" ? "sandbox" : "production";
 
-  const clientKey =
+  // Environment secrets can be pasted with a leading/trailing newline.
+  // TikTok rejects a client_key containing whitespace (it becomes %0A in OAuth URL).
+  const rawClientKey =
     mode === "sandbox"
       ? process.env.TIKTOK_SANDBOX_CLIENT_KEY
       : process.env.TIKTOK_CLIENT_KEY;
+  const clientKey = typeof rawClientKey === "string" ? rawClientKey.trim() : rawClientKey;
 
   if (!clientKey) {
     return res
@@ -39,10 +42,10 @@ module.exports = async (req, res) => {
   });
 
   // Lưu state + mode để callback biết đang dùng Sandbox hay Production
- res.setHeader("Set-Cookie", [
-  `tiktok_oauth_state=${state}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=600`,
-  `tiktok_oauth_mode=${mode}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=600`,
-]);
+  res.setHeader("Set-Cookie", [
+    `tiktok_oauth_state=${state}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=600`,
+    `tiktok_oauth_mode=${mode}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=600`,
+  ]);
 
   const authorizeUrl =
     "https://www.tiktok.com/v2/auth/authorize/?" + params.toString();
