@@ -8,6 +8,10 @@ function timingSafeEqualText(a, b) {
   return x.length === y.length && crypto.timingSafeEqual(x, y);
 }
 
+function clean(value) {
+  return typeof value === "string" ? value.trim() : value;
+}
+
 function getAutomationKey(req) {
   return req.headers["x-tiktok-automation-key"] || req.headers["x-api-key"] || "";
 }
@@ -19,8 +23,8 @@ function getMode(req, body) {
 
 function config(mode) {
   return mode === "production"
-    ? { clientKey: process.env.TIKTOK_CLIENT_KEY, clientSecret: process.env.TIKTOK_CLIENT_SECRET }
-    : { clientKey: process.env.TIKTOK_SANDBOX_CLIENT_KEY, clientSecret: process.env.TIKTOK_SANDBOX_CLIENT_SECRET };
+    ? { clientKey: clean(process.env.TIKTOK_CLIENT_KEY), clientSecret: clean(process.env.TIKTOK_CLIENT_SECRET) }
+    : { clientKey: clean(process.env.TIKTOK_SANDBOX_CLIENT_KEY), clientSecret: clean(process.env.TIKTOK_SANDBOX_CLIENT_SECRET) };
 }
 
 function configDiagnostics(mode) {
@@ -207,9 +211,9 @@ async function fetchStatus(accessToken, publishId) {
 module.exports = async (req, res) => {
   if (req.method !== "POST") return res.status(405).json({ success: false, message: "Method Not Allowed" });
 
-  const automationKey = process.env.TIKTOK_AUTOMATION_KEY;
+  const automationKey = clean(process.env.TIKTOK_AUTOMATION_KEY);
   if (!automationKey) return res.status(500).json({ success: false, message: "TIKTOK_AUTOMATION_KEY is not configured in Vercel." });
-  if (!timingSafeEqualText(getAutomationKey(req), automationKey)) return res.status(401).json({ success: false, message: "Invalid automation key." });
+  if (!timingSafeEqualText(clean(getAutomationKey(req)), automationKey)) return res.status(401).json({ success: false, message: "Invalid automation key." });
 
   let body = req.body || {};
   if (typeof body === "string") { try { body = JSON.parse(body); } catch { body = {}; } }
