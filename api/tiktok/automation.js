@@ -18,7 +18,7 @@ function getAutomationKey(req) {
 
 function getMode(req, body) {
   const requested = body?.mode || req.headers["x-tiktok-mode"] || "production";
-  return requested === "production" ? "production" : "production";
+  return requested === "sandbox" ? "sandbox" : "production";
 }
 
 function config(mode) {
@@ -42,8 +42,8 @@ async function getFreshAccessToken(mode) {
   const cfg = config(mode);
   if (!cfg.clientKey || !cfg.clientSecret) {
     const missing = [];
-    if (!cfg.clientKey) missing.push("TIKTOK_CLIENT_KEY");
-    if (!cfg.clientSecret) missing.push("TIKTOK_CLIENT_SECRET");
+    if (!cfg.clientKey) missing.push(mode === "sandbox" ? "TIKTOK_SANDBOX_CLIENT_KEY" : "TIKTOK_CLIENT_KEY");
+    if (!cfg.clientSecret) missing.push(mode === "sandbox" ? "TIKTOK_SANDBOX_CLIENT_SECRET" : "TIKTOK_CLIENT_SECRET");
     throw new Error(`TikTok ${mode} client credentials are missing: ${missing.join(", ")}.`);
   }
 
