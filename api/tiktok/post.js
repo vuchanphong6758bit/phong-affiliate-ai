@@ -38,9 +38,7 @@ async function getSession(req) {
     }
     try {
       const stored = await getToken(mode, secret);
-      if (stored?.accessToken) {
-        return { mode, access_token: stored.accessToken, open_id: stored.openId, expires_at: stored.accessExpiresAt };
-      }
+      if (stored?.accessToken) return { mode, access_token: stored.accessToken, open_id: stored.openId, expires_at: stored.accessExpiresAt };
     } catch (error) {
       console.error("TikTok stored token lookup failed:", { mode, message: error.message });
     }
@@ -80,47 +78,40 @@ module.exports = async (req, res) => {
 <label class="check"><input id="aigc" type="checkbox"><span>Video này được tạo bằng AI</span></label>
 <label class="check"><input id="consent" type="checkbox"><span>Tôi xác nhận nội dung trên và đồng ý gửi video này lên TikTok.</span></label>
 <button id="submit" type="button">Đăng lên TikTok</button>
-</div><div id="status" class="status" hidden></div>
-<script>
-const statusBox=document.getElementById('status');const button=document.getElementById('submit');
-function show(text,isError=false){statusBox.hidden=false;statusBox.className='status'+(isError?' error':'');statusBox.textContent=text;}
-button.addEventListener('click',async()=>{
- const file=document.getElementById('video').files[0];
- const privacy=document.getElementById('privacy').value;
- const consent=document.getElementById('consent').checked;
- if(!file){show('LỖI: Chưa chọn video.');return;}
- if(!['video/mp4','video/quicktime','video/webm'].includes(file.type)){show('LỖI: Video phải là MP4, MOV hoặc WebM.');return;}
- if(file.size>4*1024*1024*1024){show('LỖI: Video vượt quá 4GB.');return;}
- if(!privacy){show('LỖI: Chưa chọn quyền riêng tư.');return;}
- if(!consent){show('LỖI: Chưa tick xác nhận đồng ý đăng video.');return;}
- button.disabled=true;show('1/2 Đang khởi tạo Direct Post...');
- try{
-   const init=await fetch('/api/tiktok/post',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:document.getElementById('title').value,privacy_level:privacy,is_aigc:document.getElementById('aigc').checked,consent:true,video_size:file.size})});
-   const initText=await init.text();let initData={};try{initData=JSON.parse(initText);}catch{}
-   if(!init.ok||!initData.success)throw new Error(initData.error?.message||initData.message||initText||('HTTP '+init.status));
-   show('2/2 Đang tải video lên TikTok...');
-   const upload=await fetch(initData.upload_url,{method:'PUT',headers:{'Content-Type':file.type||'video/mp4','Content-Length':String(file.size),'Content-Range':'bytes 0-'+(file.size-1)+'/'+file.size},body:file});
-   if(!upload.ok){const text=await upload.text();throw new Error('TikTok upload failed: HTTP '+upload.status+' '+text);}
-   show('Đã tải video lên TikTok.\n\nPublish ID: '+initData.publish_id+'\n\nKiểm tra trạng thái: /api/tiktok/status?publish_id='+encodeURIComponent(initData.publish_id));
- }catch(err){show('LỖI: '+err.message,true);}finally{button.disabled=false;}
-});
-</script></body></html>`);
+</div><div id="status" class="status">Đang tải trình đăng video...</div>
+<script src="/tiktok-post.js?v=2" defer></script>
+</body></html>`);
     }
 
     if (req.method === "POST") {
-      let body=req.body||{};
-      if(typeof body==='string'){try{body=JSON.parse(body);}catch{body={};}}
-      const title=body.title||"";const privacyLevel=body.privacy_level;const consent=body.consent===true||body.consent==='true';const isAigc=body.is_aigc===true||body.is_aigc==='true';const videoSize=Number(body.video_size||0);
-      if(!consent)return res.status(400).json({success:false,message:'Bạn phải xác nhận đồng ý đăng video.'});
-      if(!privacyLevel)return res.status(400).json({success:false,message:'Bạn phải chọn privacy_level.'});
-      if(!Number.isSafeInteger(videoSize)||videoSize<=0)return res.status(400).json({success:false,message:'Thiếu hoặc sai video_size.'});
-      if(!privacyOptions.includes(privacyLevel))return res.status(400).json({success:false,message:'privacy_level không nằm trong danh sách TikTok cho phép.',privacy_level_options:privacyOptions});
-      const initResponse=await fetch('https://open.tiktokapis.com/v2/post/publish/video/init/',{method:'POST',headers:{Authorization:`Bearer ${session.access_token}`,'Content-Type':'application/json; charset=UTF-8'},body:JSON.stringify({post_info:{title:title.slice(0,2200),privacy_level:privacyLevel,disable_duet:creator.duet_disabled===true,disable_comment:creator.comment_disabled===true,disable_stitch:creator.stitch_disabled===true,is_aigc:isAigc,brand_content_toggle:false,brand_organic_toggle:false},source_info:{source:'FILE_UPLOAD',video_size:videoSize,chunk_size:videoSize,total_chunk_count:1}})});
-      const initData=await initResponse.json();
-      console.log('TikTok Direct Post FILE_UPLOAD Init:',initData);
-      if(!initResponse.ok||initData.error?.code!=='ok')return res.status(initResponse.status||400).json({success:false,message:'TikTok Direct Post initialization failed',error:initData});
+      let body = req.body || {};
+      if (typeof body === "string") { try { body = JSON.parse(body); } catch { body = {}; } }
+      const title = body.title || "";
+      const privacyLevel = body.privacy_level;
+      const consent = body.consent === true || body.consent === "true";
+      const isAigc = body.is_aigc === true || body.is_aigc === "true";
+      const videoSize = Number(body.video_size || 0);
+      if (!consent) return res.status(400).json({ success:false, message:"Bạn phải xác nhận đồng ý đăng video." });
+      if (!privacyLevel) return res.status(400).json({ success:false, message:"Bạn phải chọn privacy_level." });
+      if (!Number.isSafeInteger(videoSize) || videoSize <= 0) return res.status(400).json({ success:false, message:"Thiếu hoặc sai video_size." });
+      if (!privacyOptions.includes(privacyLevel)) return res.status(400).json({ success:false, message:"privacy_level không nằm trong danh sách TikTok cho phép.", privacy_level_options:privacyOptions });
+
+      const initResponse = await fetch("https://open.tiktokapis.com/v2/post/publish/video/init/", {
+        method:"POST",
+        headers:{ Authorization:`Bearer ${session.access_token}`, "Content-Type":"application/json; charset=UTF-8" },
+        body:JSON.stringify({
+          post_info:{ title:title.slice(0,2200), privacy_level:privacyLevel, disable_duet:creator.duet_disabled===true, disable_comment:creator.comment_disabled===true, disable_stitch:creator.stitch_disabled===true, is_aigc:isAigc, brand_content_toggle:false, brand_organic_toggle:false },
+          source_info:{ source:"FILE_UPLOAD", video_size:videoSize, chunk_size:videoSize, total_chunk_count:1 }
+        })
+      });
+      const initData = await initResponse.json();
+      console.log("TikTok Direct Post FILE_UPLOAD Init:", initData);
+      if (!initResponse.ok || initData.error?.code !== "ok") return res.status(initResponse.status || 400).json({success:false,message:"TikTok Direct Post initialization failed",error:initData});
       return res.status(200).json({success:true,publish_id:initData.data?.publish_id,upload_url:initData.data?.upload_url});
     }
-    return res.status(405).send('Method Not Allowed');
-  }catch(error){console.error('TikTok post error:',error);return res.status(500).json({success:false,message:'TikTok Direct Post server error',error:String(error.message||error)});}
+    return res.status(405).send("Method Not Allowed");
+  } catch(error) {
+    console.error("TikTok post error:",error);
+    return res.status(500).json({success:false,message:"TikTok Direct Post server error",error:String(error.message||error)});
+  }
 };
