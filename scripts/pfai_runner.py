@@ -105,10 +105,15 @@ def build_learning_context():
     return '\n'.join(lines)
 
 
+# Keep the real stdlib parser separate. app.json.loads is replaced below, so
+# calling json.loads from inside the tolerant parser would recurse forever.
+_ORIGINAL_JSON_LOADS = json.loads
+
+
 def tolerant_json_loads(raw, *args, **kwargs):
-    """Keep the first complete JSON value when Gemini appends extra text/objects."""
+    """Keep the first complete JSON object when Gemini appends extra text/objects."""
     try:
-        return json.loads(raw, *args, **kwargs)
+        return _ORIGINAL_JSON_LOADS(raw, *args, **kwargs)
     except json.JSONDecodeError:
         text = str(raw or '').strip()
         if text.startswith('```'):
@@ -129,9 +134,6 @@ def main():
     learning = build_learning_context()
     print(learning)
 
-    # The previous run showed two Gemini failure modes: no candidates from the
-    # primary response, then valid JSON followed by extra output on fallback.
-    # Make the existing app parser tolerant without changing its core workflow.
     original_json_loads = app.json.loads
     app.json.loads = tolerant_json_loads
     original = app.gemini
