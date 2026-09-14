@@ -7,7 +7,6 @@
     const consent = document.getElementById('consent');
     const aigc = document.getElementById('aigc');
     const title = document.getElementById('title');
-
     if (!statusBox || !button || !video || !privacy || !consent || !aigc || !title) return;
 
     function show(text, error = false) {
@@ -30,22 +29,22 @@
       show('1/2 Đang khởi tạo Direct Post...');
       try {
         const init = await fetch('/api/tiktok/post', {
-          method: 'POST',
-          credentials: 'same-origin',
+          method: 'POST', credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            title: title.value,
-            privacy_level: privacy.value,
-            is_aigc: aigc.checked,
-            consent: true,
-            video_size: file.size
-          })
+          body: JSON.stringify({ title: title.value, privacy_level: privacy.value, is_aigc: aigc.checked, consent: true, video_size: file.size })
         });
         const text = await init.text();
         let data = {};
         try { data = JSON.parse(text); } catch (_) {}
-        if (!init.ok || !data.success) throw new Error(data.error?.message || data.message || text || ('HTTP ' + init.status));
-        if (!data.upload_url || !data.publish_id) throw new Error('TikTok không trả về upload_url hoặc publish_id.');
+        if (!init.ok || !data.success) {
+          const e = data.error || {};
+          const nested = e.error || {};
+          const code = e.code || nested.code || data.code || '';
+          const message = e.message || nested.message || data.message || text || ('HTTP ' + init.status);
+          const logId = e.log_id || e.logid || nested.log_id || nested.logid || data.log_id || '';
+          throw new Error((code ? 'code=' + code + ' | ' : '') + message + (logId ? ' | log_id=' + logId : '') + (data.http_status ? ' | HTTP=' + data.http_status : ''));
+        }
+        if (!data.upload_url || !data.publish_id) throw new Error('TikTok không trả về upload_url hoặc publish_id. Phản hồi: ' + text);
 
         show('2/2 Đang tải video lên TikTok...');
         const xhr = new XMLHttpRequest();
@@ -57,11 +56,10 @@
             if (xhr.status >= 200 && xhr.status < 300) resolve();
             else reject(new Error('TikTok upload failed: HTTP ' + xhr.status + ' ' + xhr.responseText));
           };
-          xhr.onerror = () => reject(new Error('Không thể kết nối tới TikTok upload URL (có thể bị CORS hoặc mạng chặn).'));
+          xhr.onerror = () => reject(new Error('Không thể kết nối tới TikTok upload URL (CORS hoặc mạng).'));
           xhr.onabort = () => reject(new Error('Upload bị hủy.'));
           xhr.send(file);
         });
-
         show('ĐÃ TẢI VIDEO LÊN TIKTOK\n\nPublish ID: ' + data.publish_id + '\n\nTiếp theo kiểm tra trạng thái xử lý trên TikTok.');
       } catch (error) {
         show('LỖI: ' + (error && error.message ? error.message : String(error)), true);
@@ -70,7 +68,6 @@
       }
     });
   }
-
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
 })();
