@@ -15,6 +15,40 @@
       statusBox.textContent = text;
     }
 
+    async function checkStatus(publishId, attempt = 1) {
+      try {
+        const response = await fetch('/api/tiktok/post?publish_id=' + encodeURIComponent(publishId), { credentials: 'same-origin', cache: 'no-store' });
+        const text = await response.text();
+        let data = {};
+        try { data = JSON.parse(text); } catch (_) {}
+        if (!response.ok || !data.success) {
+          const e = data.error || {};
+          const message = e.message || data.message || text || ('HTTP ' + response.status);
+          throw new Error(message);
+        }
+        const status = data.status || 'UNKNOWN';
+        if (status === 'PUBLISH_COMPLETE') {
+          const postIds = (data.publicly_available_post_id || []).join(', ');
+          show('ĐĂNG TIKTOK THÀNH CÔNG\n\nPublish ID: ' + publishId + '\nTrạng thái: ' + status + (postIds ? '\nPost ID: ' + postIds : '));
+          return true;
+        }
+        if (status === 'FAILED') {
+          show('TIKTOK ĐĂNG THẤT BẠI\n\nPublish ID: ' + publishId + '\nLý do: ' + (data.fail_reason || 'TikTok không cung cấp lý do.'), true);
+          return true;
+        }
+        show('ĐÃ TẢI VIDEO LÊN TIKTOK\n\nPublish ID: ' + publishId + '\nTrạng thái: ' + status + '\n\nĐang tự kiểm tra trạng thái... (' + attempt + '/20)');
+        if (attempt < 20) {
+          setTimeout(() => checkStatus(publishId, attempt + 1), 3000);
+        } else {
+          show('TIKTOK CHƯA HOÀN TẤT XỬ LÝ\n\nPublish ID: ' + publishId + '\nTrạng thái cuối: ' + status + '\n\nCó thể kiểm tra lại bằng cách tải lại trang và dùng Publish ID này.', false);
+        }
+        return false;
+      } catch (error) {
+        show('LỖI KHI KIỂM TRA TRẠNG THÁI\n\nPublish ID: ' + publishId + '\n' + (error && error.message ? error.message : String(error)), true);
+        return true;
+      }
+    }
+
     show('Sẵn sàng. Chọn video và bấm Đăng lên TikTok.');
 
     button.addEventListener('click', async () => {
@@ -60,7 +94,8 @@
           xhr.onabort = () => reject(new Error('Upload bị hủy.'));
           xhr.send(file);
         });
-        show('ĐÃ TẢI VIDEO LÊN TIKTOK\n\nPublish ID: ' + data.publish_id + '\n\nTiếp theo kiểm tra trạng thái xử lý trên TikTok.');
+        show('ĐÃ TẢI VIDEO LÊN TIKTOK\n\nPublish ID: ' + data.publish_id + '\n\nĐang kiểm tra trạng thái tự động...');
+        await checkStatus(data.publish_id);
       } catch (error) {
         show('LỖI: ' + (error && error.message ? error.message : String(error)), true);
       } finally {
