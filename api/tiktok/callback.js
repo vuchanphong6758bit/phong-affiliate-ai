@@ -21,7 +21,7 @@ function encryptSession(data, secret) {
 }
 
 function esc(value) {
-  return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+  return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\"/g, "&quot;").replace(/'/g, "&#039;");
 }
 
 module.exports = async (req, res) => {
@@ -87,7 +87,7 @@ module.exports = async (req, res) => {
 
     const creator = creatorData.data || {};
     const privacy = Array.isArray(creator.privacy_level_options) ? creator.privacy_level_options.join(", ") : "N/A";
-    return res.status(200).send(`<!doctype html><html lang="vi"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Phong Affiliate AI - TikTok Connected</title><style>body{font-family:Arial,sans-serif;max-width:700px;margin:70px auto;padding:25px;text-align:center}.info{background:#f5f5f5;padding:20px;border-radius:10px;text-align:left;line-height:1.7}a{display:inline-block;padding:12px 20px;background:#111;color:#fff;text-decoration:none;border-radius:8px;margin:8px}</style></head><body><h1>Đã kết nối TikTok thành công</h1><p>Token đã được lưu an toàn để hệ thống tự động sử dụng.</p><div class="info"><b>Môi trường:</b> ${esc(mode)}<br><b>TikTok Open ID:</b> ${esc(tokenData.open_id || "N/A")}<br><b>Scope:</b> ${esc(tokenData.scope || "N/A")}<br><b>Creator:</b> ${esc(creator.creator_username || "N/A")} — ${esc(creator.creator_nickname || "N/A")}<br><b>Privacy Options:</b> ${esc(privacy)}<br><b>Thời lượng tối đa:</b> ${esc(creator.max_video_post_duration_sec || "N/A")} giây</div><p><a href="/api/tiktok/post">Đăng video TikTok</a><a href="/">Quay lại</a></p></body></html>`);
+    return res.status(200).send(`<!doctype html><html lang="vi"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Phong Affiliate AI - TikTok Connected</title><style>body{font-family:Arial,sans-serif;max-width:700px;margin:70px auto;padding:25px;text-align:center}.info{background:#f5f5f5;padding:20px;border-radius:10px;text-align:left;line-height:1.7}a{display:inline-block;padding:12px 20px;background:#111;color:#fff;text-decoration:none;border-radius:8px;margin:8px}</style></head><body><h1>Đã kết nối TikTok thành công</h1><p>Token đã được lưu an toàn để hệ thống tự động sử dụng.</p><div class="info"><b>Môi trường:</b> ${esc(mode)}<br><b>TikTok Open ID:</b> ${esc(tokenData.open_id || "N/A")}<br><b>Scope:</b> ${esc(tokenData.scope || "N/A")}<br><b>Creator:</b> ${esc(creator.creator_username || "N/A")} — ${esc(creator.creator_nickname || "N/A")}<br><b>Privacy Options:</b> ${esc(privacy)}<br><b>Thời lượng tối đa:</b> ${esc(creator.max_video_post_duration_sec || "N/A")} giây</div><p><a href="/api/tiktok/post?mode=${encodeURIComponent(mode)}">Đăng video TikTok</a><a href="/">Quay lại</a></p></body></html>`);
   } catch (err) {
     console.error("TikTok OAuth error:", err);
     return res.status(500).send("TikTok OAuth server error");
