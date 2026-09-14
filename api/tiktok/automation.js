@@ -1,5 +1,6 @@
 const crypto = require("crypto");
 const { getToken, updateRefreshedToken } = require("../../lib/tiktok-store");
+const { getClientKey, getClientSecret } = require("../../lib/tiktok-config");
 
 function timingSafeEqualText(a, b) {
   if (!a || !b) return false;
@@ -22,9 +23,7 @@ function getMode(req, body) {
 }
 
 function config(mode) {
-  return mode === "production"
-    ? { clientKey: clean(process.env.TIKTOK_CLIENT_KEY), clientSecret: clean(process.env.TIKTOK_CLIENT_SECRET) }
-    : { clientKey: clean(process.env.TIKTOK_SANDBOX_CLIENT_KEY), clientSecret: clean(process.env.TIKTOK_SANDBOX_CLIENT_SECRET) };
+  return { clientKey: getClientKey(mode), clientSecret: getClientSecret(mode) };
 }
 
 function configDiagnostics(mode) {
@@ -42,7 +41,7 @@ async function getFreshAccessToken(mode) {
   const cfg = config(mode);
   if (!cfg.clientKey || !cfg.clientSecret) {
     const missing = [];
-    if (!cfg.clientKey) missing.push(mode === "sandbox" ? "TIKTOK_SANDBOX_CLIENT_KEY" : "TIKTOK_CLIENT_KEY");
+    if (!cfg.clientKey) missing.push(mode === "sandbox" ? "TIKTOK_SANDBOX_CLIENT_KEY" : "TikTok production client key");
     if (!cfg.clientSecret) missing.push(mode === "sandbox" ? "TIKTOK_SANDBOX_CLIENT_SECRET" : "TIKTOK_CLIENT_SECRET");
     throw new Error(`TikTok ${mode} client credentials are missing: ${missing.join(", ")}.`);
   }
