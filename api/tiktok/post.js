@@ -1,4 +1,5 @@
 const crypto = require("crypto");
+const { getToken } = require("../../lib/tiktok-store");
 
 function getCookie(req, name) {
   const cookies = req.headers.cookie || "";
@@ -34,23 +35,37 @@ function escapeHtml(value) {
 }
 
 async function getSession(req) {
-  const sessionCookie = getCookie(req, "tiktok_session");
-  if (!sessionCookie) return null;
-
+  const requestedMode = req.query?.mode === "production" ? "production" : "sandbox";
   const modeCookie = getCookie(req, "tiktok_oauth_mode");
-  let mode = modeCookie === "production" ? "production" : "sandbox";
-  let secret = mode === "sandbox" ? process.env.TIKTOK_SANDBOX_CLIENT_SECRET : process.env.TIKTOK_CLIENT_SECRET;
-  let session = decryptSession(sessionCookie, secret);
+  const preferredMode = modeCookie === "production" || req.query?.mode === "production" ? "production" : requestedMode;
+  const preferredSecret = preferredMode === "sandbox" ? process.env.TIKTOK_SANDBOX_CLIENT_SECRET : process.env.TIKTOK_CLIENT_SECRET;
 
-  if (!session) {
-    mode = "production";
-    secret = process.env.TIKTOK_CLIENT_SECRET;
-    session = decryptSession(sessionCookie, secret);
+  const sessionCookie = getCookie(req, "tiktok_session");
+  if (sessionCookie) {
+    let session = decryptSession(sessionCookie, preferredSecret);
+    if (!session && preferredMode !== "production") {
+      session = decryptSession(sessionCookie, process.env.TIKTOK_CLIENT_SECRET);
+    }
+    if (session && (!session.expires_at || Date.now() < session.expires_at)) return session;
   }
 
-  if (!session) return null;
-  if (session.expires_at && Date.now() >= session.expires_at) return null;
-  return session;
+  // The OAuth token is also stored server-side. Use it when the browser session
+  // cookie is missing/expired so posting does not depend on a fragile browser session.
+  try {
+    const stored = await getToken(preferredMode, preferredSecret);
+    if (stored) {
+      return {
+        mode: stored.mode,
+        access_token: stored.accessToken,
+        open_id: stored.openId,
+        expires_at: stored.accessExpiresAt,
+      };
+    }
+  } catch (error) {
+    console.error("TikTok stored token lookup error:", error);
+  }
+
+  return null;
 }
 
 async function getCreatorInfo(accessToken) {
@@ -87,7 +102,7 @@ module.exports = async (req, res) => {
 body{font-family:Arial,sans-serif;max-width:760px;margin:50px auto;padding:20px}h1{margin-bottom:10px}.account{background:#f5f5f5;padding:16px;border-radius:10px;margin:20px 0;line-height:1.7}label{display:block;font-weight:bold;margin-top:18px;margin-bottom:8px}input,textarea,select{width:100%;box-sizing:border-box;padding:12px;border:1px solid #ccc;border-radius:8px;font-size:15px}textarea{min-height:120px}.check{font-weight:normal;display:flex;gap:10px;align-items:flex-start}.check input{width:auto;margin-top:4px}button{margin-top:24px;width:100%;padding:14px;border:0;border-radius:8px;background:#111;color:white;font-size:16px;cursor:pointer}.note{color:#666;font-size:14px;margin-top:8px}.status{margin-top:20px;padding:15px;border-radius:8px;background:#f5f5f5;white-space:pre-wrap}
 </style></head><body>
 <h1>Đăng video TikTok</h1>
-<div class="account"><strong>Tài khoản TikTok</strong><br>Nickname: ${escapeHtml(creator.creator_nickname)}<br>Username: ${escapeHtml(creator.creator_username)}<br>Thời lượng tối đa: ${escapeHtml(creator.max_video_post_duration_sec)} giây</div>
+<div class="account"><strong>Tài khoản TikTok</strong><br>Nickname: ${escapeHtml(creator.creator_nickname)}<br>Username: ${escapeHtml(creator.creator_username)}<br>Thời lượng tối đa: ${escapeHtml(creator.max_video_post_duration_sec)} giây<br>Môi trường: ${escapeHtml(session.mode)}</div>
 <form id="postForm">
 <label>Video từ máy</label><input id="video" type="file" accept="video/mp4,video/quicktime,video/webm" required><div class="note">Dùng FILE_UPLOAD nên không cần xác minh domain của video.</div>
 <label>Caption</label><textarea id="title" maxlength="2200" placeholder="Nhập caption và hashtag..."></textarea>
@@ -107,13 +122,13 @@ form.addEventListener('submit',async(e)=>{
  if(file.size>4*1024*1024*1024){show('Video vượt quá 4GB.');return;}
  button.disabled=true;show('1/2 Đang khởi tạo Direct Post...');
  try{
-   const init=await fetch('/api/tiktok/post',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:document.getElementById('title').value,privacy_level:document.getElementById('privacy').value,is_aigc:document.getElementById('aigc').checked,consent:document.getElementById('consent').checked,video_size:file.size})});
+   const init=await fetch('/api/tiktok/post?mode='+encodeURIComponent('${escapeHtml(session.mode)}'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:document.getElementById('title').value,privacy_level:document.getElementById('privacy').value,is_aigc:document.getElementById('aigc').checked,consent:document.getElementById('consent').checked,video_size:file.size})});
    const initData=await init.json();
    if(!init.ok||!initData.success){throw new Error(initData.error?.message||initData.message||'TikTok Direct Post initialization failed');}
    show('2/2 Đang tải video lên TikTok...');
    const upload=await fetch(initData.upload_url,{method:'PUT',headers:{'Content-Type':file.type||'video/mp4','Content-Length':String(file.size),'Content-Range':'bytes 0-'+(file.size-1)+'/'+file.size},body:file});
    if(!upload.ok){const text=await upload.text();throw new Error('TikTok upload failed: HTTP '+upload.status+' '+text);}
-   show('Đã tải video lên TikTok.\\n\\nPublish ID: '+initData.publish_id+'\\n\\nKiểm tra trạng thái: /api/tiktok/status?publish_id='+encodeURIComponent(initData.publish_id));
+   show('Đã tải video lên TikTok.\n\nPublish ID: '+initData.publish_id+'\n\nKiểm tra trạng thái: /api/tiktok/status?publish_id='+encodeURIComponent(initData.publish_id));
  }catch(err){show('LỖI: '+err.message);}finally{button.disabled=false;}
 });
 </script></body></html>`);
