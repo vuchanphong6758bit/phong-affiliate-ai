@@ -105,9 +105,35 @@ def build_learning_context():
     return '\n'.join(lines)
 
 
+def tolerant_json_loads(raw, *args, **kwargs):
+    """Keep the first complete JSON value when Gemini appends extra text/objects."""
+    try:
+        return json.loads(raw, *args, **kwargs)
+    except json.JSONDecodeError:
+        text = str(raw or '').strip()
+        if text.startswith('```'):
+            text = re.sub(r'^```(?:json)?\s*', '', text, flags=re.I)
+            text = re.sub(r'\s*```\s*$', '', text)
+        decoder = json.JSONDecoder()
+        for match in re.finditer(r'\{', text):
+            try:
+                value, _ = decoder.raw_decode(text[match.start():])
+                if isinstance(value, dict):
+                    return value
+            except json.JSONDecodeError:
+                continue
+        raise
+
+
 def main():
     learning = build_learning_context()
     print(learning)
+
+    # The previous run showed two Gemini failure modes: no candidates from the
+    # primary response, then valid JSON followed by extra output on fallback.
+    # Make the existing app parser tolerant without changing its core workflow.
+    original_json_loads = app.json.loads
+    app.json.loads = tolerant_json_loads
     original = app.gemini
 
     def learned_gemini(prompt, attempts=2):
@@ -125,9 +151,10 @@ def main():
                 app.MODEL = previous_model
 
     app.gemini = learned_gemini
-    # TikTok mode/privacy are controlled centrally by workflow environment.
-    # Do not override them here with stale account-row defaults.
-    app.main()
+    try:
+        app.main()
+    finally:
+        app.json.loads = original_json_loads
 
 
 if __name__ == '__main__':
