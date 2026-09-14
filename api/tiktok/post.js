@@ -81,31 +81,7 @@ module.exports = async (req, res) => {
 <label class="check"><input id="consent" type="checkbox"><span>Tôi xác nhận nội dung trên và đồng ý gửi video này lên TikTok.</span></label>
 <button id="submit" type="button">Đăng lên TikTok</button>
 </div><div id="status" class="status" hidden></div>
-<script>
-const statusBox=document.getElementById('status');const button=document.getElementById('submit');
-function show(text,isError=false){statusBox.hidden=false;statusBox.className='status'+(isError?' error':'');statusBox.textContent=text;}
-button.addEventListener('click',async()=>{
- const file=document.getElementById('video').files[0];
- const privacy=document.getElementById('privacy').value;
- const consent=document.getElementById('consent').checked;
- if(!file){show('LỖI: Chưa chọn video.');return;}
- if(!['video/mp4','video/quicktime','video/webm'].includes(file.type)){show('LỖI: Video phải là MP4, MOV hoặc WebM.');return;}
- if(file.size>4*1024*1024*1024){show('LỖI: Video vượt quá 4GB.');return;}
- if(!privacy){show('LỖI: Chưa chọn quyền riêng tư.');return;}
- if(!consent){show('LỖI: Chưa tick xác nhận đồng ý đăng video.');return;}
- button.disabled=true;show('1/2 Đang khởi tạo Direct Post...');
- try{
-   const init=await fetch('/api/tiktok/post',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:document.getElementById('title').value,privacy_level:privacy,is_aigc:document.getElementById('aigc').checked,consent:true,video_size:file.size})});
-   const initText=await init.text();let initData={};try{initData=JSON.parse(initText);}catch{}
-   if(!init.ok||!initData.success){const t=initData.error||{};throw new Error((t.code?'code='+t.code+' | ':'')+(t.message||initData.message||initText||('HTTP '+init.status))+(t.log_id?' | log_id='+t.log_id:''));}
-   if(!initData.upload_url||!initData.publish_id)throw new Error('TikTok không trả về upload_url/publish_id. Phản hồi: '+initText);
-   show('2/2 Đang tải video lên TikTok...');
-   const upload=await fetch(initData.upload_url,{method:'PUT',headers:{'Content-Type':file.type||'video/mp4','Content-Length':String(file.size),'Content-Range':'bytes 0-'+(file.size-1)+'/'+file.size},body:file});
-   if(!upload.ok){const text=await upload.text();throw new Error('TikTok upload failed: HTTP '+upload.status+' '+text);}
-   show('Đã tải video lên TikTok.\n\nPublish ID: '+initData.publish_id+'\n\nKiểm tra trạng thái: /api/tiktok/status?publish_id='+encodeURIComponent(initData.publish_id));
- }catch(err){show('LỖI: '+err.message,true);}finally{button.disabled=false;}
-});
-</script></body></html>`);
+<script src="/tiktok-post.js?v=3" defer></script></body></html>`);
     }
 
     if (req.method === "POST") {
