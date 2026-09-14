@@ -1,14 +1,11 @@
 const crypto = require("crypto");
 const { saveToken } = require("../../lib/tiktok-store");
+const { getClientKey, getClientSecret } = require("../../lib/tiktok-config");
 
 function getCookie(req, name) {
   const cookies = req.headers.cookie || "";
   const match = cookies.match(new RegExp("(?:^|; )" + name + "=([^;]*)"));
   return match ? decodeURIComponent(match[1]) : null;
-}
-
-function clean(value) {
-  return typeof value === "string" ? value.trim() : value;
 }
 
 function encryptSession(data, secret) {
@@ -35,8 +32,8 @@ module.exports = async (req, res) => {
   if (!state || !savedState || state !== savedState) return res.status(400).send("Invalid OAuth state");
 
   const mode = getCookie(req, "tiktok_oauth_mode") === "sandbox" ? "sandbox" : "production";
-  const clientKey = clean(mode === "sandbox" ? process.env.TIKTOK_SANDBOX_CLIENT_KEY : process.env.TIKTOK_CLIENT_KEY);
-  const clientSecret = clean(mode === "sandbox" ? process.env.TIKTOK_SANDBOX_CLIENT_SECRET : process.env.TIKTOK_CLIENT_SECRET);
+  const clientKey = getClientKey(mode);
+  const clientSecret = getClientSecret(mode);
   if (!clientKey || !clientSecret) return res.status(500).send(`TikTok ${mode} environment variables are missing`);
 
   const redirectUri = "https://phong-affiliate-ai.vercel.app/api/tiktok/callback";
