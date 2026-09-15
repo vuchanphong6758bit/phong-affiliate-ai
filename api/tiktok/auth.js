@@ -1,5 +1,5 @@
 const crypto = require("crypto");
-const { getClientKey } = require("../../lib/tiktok-config");
+const { getClientKey, getRedirectUri } = require("../../lib/tiktok-config");
 
 module.exports = async (req, res) => {
   if (req.method !== "GET") {
@@ -15,13 +15,11 @@ module.exports = async (req, res) => {
       .send(
         mode === "sandbox"
           ? "TIKTOK_SANDBOX_CLIENT_KEY is not configured"
-          : "TikTok production client key is not configured"
+          : "TIKTOK_CLIENT_KEY is not configured"
       );
   }
 
-  const redirectUri =
-    "https://phong-affiliate-ai.vercel.app/api/tiktok/callback";
-
+  const redirectUri = getRedirectUri();
   const state = crypto.randomBytes(32).toString("hex");
   const scope = "user.info.basic,video.upload,video.publish";
 
