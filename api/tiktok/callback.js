@@ -1,6 +1,6 @@
 const crypto = require("crypto");
 const { saveToken } = require("../../lib/tiktok-store");
-const { getClientKey, getClientSecret } = require("../../lib/tiktok-config");
+const { getClientKey, getClientSecret, getRedirectUri } = require("../../lib/tiktok-config");
 
 function getCookie(req, name) {
   const cookies = req.headers.cookie || "";
@@ -34,9 +34,9 @@ module.exports = async (req, res) => {
   const mode = getCookie(req, "tiktok_oauth_mode") === "sandbox" ? "sandbox" : "production";
   const clientKey = getClientKey(mode);
   const clientSecret = getClientSecret(mode);
-  if (!clientKey || !clientSecret) return res.status(500).send(`TikTok ${mode} environment variables are missing`);
+  if (!clientKey || !clientSecret) return res.status(500).send(`TikTok ${mode} credentials are not configured`);
 
-  const redirectUri = "https://phong-affiliate-ai.vercel.app/api/tiktok/callback";
+  const redirectUri = getRedirectUri();
 
   try {
     const tokenResponse = await fetch("https://open.tiktokapis.com/v2/oauth/token/", {
