@@ -3,7 +3,8 @@ run-name: FB Shopee Affiliate ${{ github.run_id }}
 
 on:
   schedule:
-    - cron: '0 9 * * *'
+    # Start in the strongest daily e-commerce window; later we can shift this from real Page Insights.
+    - cron: '30 19 * * *'
       timezone: 'Asia/Ho_Chi_Minh'
   workflow_dispatch:
 
@@ -97,7 +98,7 @@ jobs:
           SHOPEE_API_SECRET: ${{ secrets.SHOPEE_API_SECRET }}
         run: python3 scripts/fb_shopee_generate.py
 
-      - name: Publish to Facebook Page
+      - name: Publish visual post to Facebook Page
         env:
           FACEBOOK_PAGE_ID: ${{ secrets.FACEBOOK_PAGE_ID }}
           FACEBOOK_PAGE_ACCESS_TOKEN: ${{ secrets.FACEBOOK_PAGE_ACCESS_TOKEN }}
