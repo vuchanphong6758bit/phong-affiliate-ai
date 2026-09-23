@@ -1,0 +1,13 @@
+{
+  "generated_at": "2026-09-23T09:53:49.752394+00:00",
+  "measurement_available": false,
+  "observations": 0,
+  "top_products": [],
+  "post_types": {},
+  "rules": [
+    "Ưu tiên sản phẩm có click và engagement thực tế tốt hơn trung vị.",
+    "Giảm tần suất sản phẩm có impressions nhưng CTR thấp sau đủ mẫu.",
+    "Không kết luận từ một bài duy nhất; cần tối thiểu 3 quan sát khi có thể.",
+    "Không dùng bot, click ảo, tài khoản ảo hoặc hành vi thao túng tương tác."
+  ]
+}
