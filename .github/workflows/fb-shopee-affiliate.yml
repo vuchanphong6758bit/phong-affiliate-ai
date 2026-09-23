@@ -29,19 +29,45 @@ jobs:
       - name: Install dependencies
         run: python3 -m pip install --quiet requests
 
-      - name: Preflight
+      - name: Preflight credentials and product file
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           FACEBOOK_PAGE_ID: ${{ secrets.FACEBOOK_PAGE_ID }}
           FACEBOOK_PAGE_ACCESS_TOKEN: ${{ secrets.FACEBOOK_PAGE_ACCESS_TOKEN }}
-          SHOPEE_API_APP_ID: ${{ secrets.SHOPEE_API_APP_ID }}
-          SHOPEE_API_SECRET: ${{ secrets.SHOPEE_API_SECRET }}
         run: |
           set -euo pipefail
           test -n "$GEMINI_API_KEY" || { echo 'MISSING_SECRET: GEMINI_API_KEY'; exit 1; }
           test -n "$FACEBOOK_PAGE_ID" || { echo 'MISSING_SECRET: FACEBOOK_PAGE_ID'; exit 1; }
           test -n "$FACEBOOK_PAGE_ACCESS_TOKEN" || { echo 'MISSING_SECRET: FACEBOOK_PAGE_ACCESS_TOKEN'; exit 1; }
           test -f "$PRODUCTS_FILE" || { echo "MISSING_FILE: $PRODUCTS_FILE"; exit 1; }
+          echo 'PASS: core credentials and product file.'
+
+      - name: Validate Facebook Page API
+        env:
+          FACEBOOK_PAGE_ID: ${{ secrets.FACEBOOK_PAGE_ID }}
+          FACEBOOK_PAGE_ACCESS_TOKEN: ${{ secrets.FACEBOOK_PAGE_ACCESS_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import os, requests, sys
+          page_id = os.environ['FACEBOOK_PAGE_ID']
+          token = os.environ['FACEBOOK_PAGE_ACCESS_TOKEN']
+          r = requests.get(
+              f'https://graph.facebook.com/v26.0/{page_id}',
+              params={'fields': 'id,name', 'access_token': token},
+              timeout=30,
+          )
+          if not r.ok:
+              print(f'FACEBOOK_API_FAILED: HTTP {r.status_code} {r.text}')
+              sys.exit(1)
+          data = r.json()
+          print(f"PASS: Facebook Page API — {data.get('name')} ({data.get('id')})")
+          PY
+
+      - name: Validate Shopee affiliate source
+        env:
+          SHOPEE_API_APP_ID: ${{ secrets.SHOPEE_API_APP_ID }}
+          SHOPEE_API_SECRET: ${{ secrets.SHOPEE_API_SECRET }}
+        run: |
           python3 - <<'PY'
           import csv, os, sys
           rows = list(csv.DictReader(open(os.environ['PRODUCTS_FILE'], encoding='utf-8-sig')))
@@ -49,14 +75,16 @@ jobs:
           if not ready:
               print('NO_READY_PRODUCT')
               sys.exit(1)
-          if not any((r.get('affiliate_url') or '').strip() for r in ready):
-              if not os.environ.get('SHOPEE_API_APP_ID'):
-                  print('MISSING_SECRET: SHOPEE_API_APP_ID (or add affiliate_url to a READY product)')
-                  sys.exit(1)
-              if not os.environ.get('SHOPEE_API_SECRET'):
-                  print('MISSING_SECRET: SHOPEE_API_SECRET (or add affiliate_url to a READY product)')
-                  sys.exit(1)
-          print('PASS: FB + Shopee preflight.')
+          if any((r.get('affiliate_url') or '').strip() for r in ready):
+              print('PASS: READY product already has an affiliate_url.')
+              sys.exit(0)
+          if not os.environ.get('SHOPEE_API_APP_ID'):
+              print('WAITING: Shopee approval/API credentials — add affiliate_url or SHOPEE_API_APP_ID/SHOPEE_API_SECRET.')
+              sys.exit(1)
+          if not os.environ.get('SHOPEE_API_SECRET'):
+              print('WAITING: Shopee API secret is missing.')
+              sys.exit(1)
+          print('PASS: Shopee API credentials present.')
           PY
 
       - name: Select product, create affiliate link and generate content
