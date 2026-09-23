@@ -6,14 +6,20 @@ ready = [r for r in rows if (r.get('status') or '').upper() == 'READY' and (r.ge
 if not ready:
     raise SystemExit('No READY Shopee products with product_url/affiliate_url.')
 
-def score(r):
+def num(value):
+    text=str(value or '').strip().replace(',', '')
+    if text.endswith('+'):
+        text=text[:-1]
     try:
-        price=float(r.get('price') or 0)
-        commission=float(r.get('commission_pct') or 0)
-        rating=float(r.get('rating') or 0)
-        orders=float(r.get('orders') or 0)
+        return float(text or 0)
     except ValueError:
-        return 0
+        return 0.0
+
+def score(r):
+    price=num(r.get('price'))
+    commission=num(r.get('commission_pct'))
+    rating=num(r.get('rating'))
+    orders=num(r.get('orders'))
     order_score=min(25, orders/1000*25)
     rating_score=max(0, min(20, (rating/5)*20))
     commission_score=min(30, commission*2)
