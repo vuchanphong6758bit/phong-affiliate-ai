@@ -3,7 +3,6 @@ run-name: FB Shopee Affiliate ${{ github.run_id }}
 
 on:
   schedule:
-    # Start in the strongest daily e-commerce window; later we can shift this from real Page Insights.
     - cron: '30 19 * * *'
       timezone: 'Asia/Ho_Chi_Minh'
   workflow_dispatch:
@@ -18,11 +17,13 @@ concurrency:
 env:
   GEMINI_MODEL: 'gemini-3.6-flash'
   PRODUCTS_FILE: 'data/shopee-products.csv'
+  CAMPAIGN_START: '2026-09-23'
+  CAMPAIGN_DAYS: '30'
 
 jobs:
   affiliate:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -50,18 +51,11 @@ jobs:
         run: |
           python3 - <<'PY'
           import os, requests, sys
-          page_id = os.environ['FACEBOOK_PAGE_ID']
-          token = os.environ['FACEBOOK_PAGE_ACCESS_TOKEN']
-          r = requests.get(
-              f'https://graph.facebook.com/v26.0/{page_id}',
-              params={'fields': 'id,name', 'access_token': token},
-              timeout=30,
-          )
+          page_id=os.environ['FACEBOOK_PAGE_ID']; token=os.environ['FACEBOOK_PAGE_ACCESS_TOKEN']
+          r=requests.get(f'https://graph.facebook.com/v26.0/{page_id}',params={'fields':'id,name','access_token':token},timeout=30)
           if not r.ok:
-              print(f'FACEBOOK_API_FAILED: HTTP {r.status_code} {r.text}')
-              sys.exit(1)
-          data = r.json()
-          print(f"PASS: Facebook Page API — {data.get('name')} ({data.get('id')})")
+              print(f'FACEBOOK_API_FAILED: HTTP {r.status_code} {r.text}'); sys.exit(1)
+          data=r.json(); print(f"PASS: Facebook Page API — {data.get('name')} ({data.get('id')})")
           PY
 
       - name: Validate Shopee affiliate source
@@ -71,22 +65,20 @@ jobs:
         run: |
           python3 - <<'PY'
           import csv, os, sys
-          rows = list(csv.DictReader(open(os.environ['PRODUCTS_FILE'], encoding='utf-8-sig')))
-          ready = [r for r in rows if (r.get('status') or '').upper() == 'READY' and (r.get('affiliate_url') or r.get('product_url'))]
-          if not ready:
-              print('NO_READY_PRODUCT')
-              sys.exit(1)
-          if any((r.get('affiliate_url') or '').strip() for r in ready):
-              print('PASS: READY product already has an affiliate_url.')
-              sys.exit(0)
-          if not os.environ.get('SHOPEE_API_APP_ID'):
-              print('WAITING: Shopee approval/API credentials — add affiliate_url or SHOPEE_API_APP_ID/SHOPEE_API_SECRET.')
-              sys.exit(1)
-          if not os.environ.get('SHOPEE_API_SECRET'):
-              print('WAITING: Shopee API secret is missing.')
-              sys.exit(1)
+          rows=list(csv.DictReader(open(os.environ['PRODUCTS_FILE'],encoding='utf-8-sig')))
+          ready=[r for r in rows if (r.get('status') or '').upper()=='READY' and (r.get('affiliate_url') or r.get('product_url'))]
+          if not ready: print('NO_READY_PRODUCT'); sys.exit(1)
+          if any((r.get('affiliate_url') or '').strip() for r in ready): print('PASS: READY product already has an affiliate_url.'); sys.exit(0)
+          if not os.environ.get('SHOPEE_API_APP_ID'): print('WAITING: Shopee approval/API credentials.'); sys.exit(1)
+          if not os.environ.get('SHOPEE_API_SECRET'): print('WAITING: Shopee API secret is missing.'); sys.exit(1)
           print('PASS: Shopee API credentials present.')
           PY
+
+      - name: Learn from previous Facebook results
+        env:
+          FACEBOOK_PAGE_ID: ${{ secrets.FACEBOOK_PAGE_ID }}
+          FACEBOOK_PAGE_ACCESS_TOKEN: ${{ secrets.FACEBOOK_PAGE_ACCESS_TOKEN }}
+        run: python3 scripts/fb_learning.py
 
       - name: Select product, create affiliate link and generate content
         id: content
@@ -99,6 +91,7 @@ jobs:
         run: python3 scripts/fb_shopee_generate.py
 
       - name: Publish visual post to Facebook Page
+        id: publish
         env:
           FACEBOOK_PAGE_ID: ${{ secrets.FACEBOOK_PAGE_ID }}
           FACEBOOK_PAGE_ACCESS_TOKEN: ${{ secrets.FACEBOOK_PAGE_ACCESS_TOKEN }}
@@ -112,12 +105,32 @@ jobs:
           PRODUCT_ID: ${{ steps.content.outputs.product_id }}
           PRODUCT_NAME: ${{ steps.content.outputs.product_name }}
           SCORE: ${{ steps.content.outputs.score }}
+          POST_ID: ${{ steps.publish.outputs.post_id }}
+          POST_TYPE: ${{ steps.publish.outputs.post_type }}
           POST_STATUS: ${{ job.status }}
         run: |
           mkdir -p data/runs
-          printf '%s\n' "{\"product_id\":\"$PRODUCT_ID\",\"product_name\":\"$PRODUCT_NAME\",\"score\":\"$SCORE\",\"workflow_status\":\"$POST_STATUS\",\"run_id\":\"${GITHUB_RUN_ID}\"}" > "data/runs/${GITHUB_RUN_ID}.json"
+          python3 - <<'PY'
+          import json, os
+          from datetime import date
+          start=date.fromisoformat(os.environ['CAMPAIGN_START'])
+          day=(date.today()-start).days+1
+          payload={
+            'product_id':os.environ.get('PRODUCT_ID',''),
+            'product_name':os.environ.get('PRODUCT_NAME',''),
+            'score':os.environ.get('SCORE',''),
+            'post_id':os.environ.get('POST_ID',''),
+            'post_type':os.environ.get('POST_TYPE',''),
+            'workflow_status':os.environ.get('POST_STATUS',''),
+            'campaign_day':day,
+            'campaign_days':int(os.environ['CAMPAIGN_DAYS']),
+            'run_id':os.environ['GITHUB_RUN_ID']
+          }
+          with open(f"data/runs/{os.environ['GITHUB_RUN_ID']}.json",'w',encoding='utf-8') as f:
+              json.dump(payload,f,ensure_ascii=False,indent=2)
+          PY
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add data/runs
-          git commit -m "chore: save FB Shopee affiliate run" || true
+          git add data/runs data/learning
+          git commit -m "chore: learn from FB affiliate run" || true
           git push || true
