@@ -1,0 +1,75 @@
+name: FB + Shopee Affiliate
+run-name: FB Shopee Affiliate ${{ github.run_id }}
+
+on:
+  schedule:
+    - cron: '0 9 * * *'
+      timezone: 'Asia/Ho_Chi_Minh'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fb-shopee-affiliate
+  cancel-in-progress: false
+
+env:
+  GEMINI_MODEL: 'gemini-3.6-flash'
+  PRODUCTS_FILE: 'data/shopee-products.csv'
+
+jobs:
+  affiliate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: python3 -m pip install --quiet requests
+
+      - name: Preflight
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          FACEBOOK_PAGE_ID: ${{ secrets.FACEBOOK_PAGE_ID }}
+          FACEBOOK_PAGE_ACCESS_TOKEN: ${{ secrets.FACEBOOK_PAGE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$GEMINI_API_KEY" || { echo 'MISSING_SECRET: GEMINI_API_KEY'; exit 1; }
+          test -n "$FACEBOOK_PAGE_ID" || { echo 'MISSING_SECRET: FACEBOOK_PAGE_ID'; exit 1; }
+          test -n "$FACEBOOK_PAGE_ACCESS_TOKEN" || { echo 'MISSING_SECRET: FACEBOOK_PAGE_ACCESS_TOKEN'; exit 1; }
+          test -f "$PRODUCTS_FILE" || { echo "MISSING_FILE: $PRODUCTS_FILE"; exit 1; }
+          echo 'PASS: FB + Shopee preflight.'
+
+      - name: Select product and generate content
+        id: content
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ env.GEMINI_MODEL }}
+          PRODUCTS_FILE: ${{ env.PRODUCTS_FILE }}
+        run: python3 scripts/fb_shopee_generate.py
+
+      - name: Publish to Facebook Page
+        env:
+          FACEBOOK_PAGE_ID: ${{ secrets.FACEBOOK_PAGE_ID }}
+          FACEBOOK_PAGE_ACCESS_TOKEN: ${{ secrets.FACEBOOK_PAGE_ACCESS_TOKEN }}
+          MESSAGE: ${{ steps.content.outputs.message }}
+          LINK: ${{ steps.content.outputs.affiliate_url }}
+        run: python3 scripts/fb_publish.py
+
+      - name: Save run result
+        if: always()
+        env:
+          PRODUCT_ID: ${{ steps.content.outputs.product_id }}
+          PRODUCT_NAME: ${{ steps.content.outputs.product_name }}
+          SCORE: ${{ steps.content.outputs.score }}
+          POST_STATUS: ${{ job.status }}
+        run: |
+          mkdir -p data/runs
+          printf '%s\n' "{\"product_id\":\"$PRODUCT_ID\",\"product_name\":\"$PRODUCT_NAME\",\"score\":\"$SCORE\",\"workflow_status\":\"$POST_STATUS\",\"run_id\":\"${GITHUB_RUN_ID}\"}" > "data/runs/${GITHUB_RUN_ID}.json"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add data/runs
+          git commit -m "chore: save FB Shopee affiliate run" || true
+          git push || true
