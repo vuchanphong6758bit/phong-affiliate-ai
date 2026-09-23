@@ -53,6 +53,23 @@ jobs:
           if not r.ok: print(f'FACEBOOK_API_FAILED: HTTP {r.status_code} {r.text}'); sys.exit(1)
           data=r.json(); print(f"PASS: Facebook Page API — {data.get('name')} ({data.get('id')})")
           PY
+      - name: Remove accidental test post
+        env:
+          FACEBOOK_PAGE_ID: ${{ secrets.FACEBOOK_PAGE_ID }}
+          FACEBOOK_PAGE_ACCESS_TOKEN: ${{ secrets.FACEBOOK_PAGE_ACCESS_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import os, requests
+          page_id=os.environ['FACEBOOK_PAGE_ID']; token=os.environ['FACEBOOK_PAGE_ACCESS_TOKEN']
+          r=requests.get('https://graph.facebook.com/v26.0/me/accounts',params={'fields':'id,access_token','access_token':token},timeout=30)
+          page=next((x for x in r.json().get('data',[]) if str(x.get('id'))==str(page_id)),None) if r.ok else None
+          page_token=(page or {}).get('access_token')
+          if page_token:
+              d=requests.delete('https://graph.facebook.com/v26.0/1337765709414675_122106852387479564',params={'access_token':page_token},timeout=30)
+              print('Cleanup status:',d.status_code,d.text[:500])
+          else:
+              print('Cleanup skipped: Page token could not be resolved.')
+          PY
       - name: Validate Shopee affiliate source
         env:
           SHOPEE_API_APP_ID: ${{ secrets.SHOPEE_API_APP_ID }}
