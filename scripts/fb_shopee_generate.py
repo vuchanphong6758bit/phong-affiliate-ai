@@ -68,7 +68,7 @@ resp=requests.post('https://generativelanguage.googleapis.com/v1beta/models/'+os
 text=resp.json()['candidates'][0]['content']['parts'][0]['text'].strip()
 if text.startswith('```'): text=text.split('\n',1)[1].rsplit('```',1)[0]
 data=json.loads(text); message=data['message']
-for placeholder in ('[Chèn link affiliate của bạn]','[LINK AFFILIATE]','[link affiliate]','<affiliate_url>','[Link affiliate của bạn]'): message=message.replace(placeholder,affiliate_url)
+for placeholder in ('[Chèn link affiliate của bạn]','[LINK AFFILIATE]','[link affiliate]','<affiliate_url>','[Link affiliate của bạn]','[Link]','[LINK]'): message=message.replace(placeholder,affiliate_url)
 if affiliate_url not in message: message=message.rstrip()+'\n\nXem sản phẩm: '+affiliate_url
 
 with open(os.environ['GITHUB_OUTPUT'],'a',encoding='utf-8') as f:
