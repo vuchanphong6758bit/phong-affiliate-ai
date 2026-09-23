@@ -71,6 +71,12 @@ if text.startswith('```'):
     text=text.split('\n',1)[1].rsplit('```',1)[0]
 data=json.loads(text)
 message=data['message']
+# Prevent the model from leaving a placeholder instead of the real affiliate URL.
+placeholders = ('[Chèn link affiliate của bạn]', '[LINK AFFILIATE]', '[link affiliate]', '<affiliate_url>')
+for placeholder in placeholders:
+    message = message.replace(placeholder, affiliate_url)
+if affiliate_url not in message:
+    message = message.rstrip() + '\n\nXem sản phẩm: ' + affiliate_url
 
 out=os.environ.get('GITHUB_OUTPUT')
 with open(out,'a',encoding='utf-8') as f:
