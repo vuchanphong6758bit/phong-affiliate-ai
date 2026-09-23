@@ -1,0 +1,26 @@
+const { ensureSchema } = require('../lib/db');
+
+module.exports = async (req, res) => {
+  try {
+    const sql = await ensureSchema();
+    if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+    if (!process.env.OPENAI_API_KEY) return res.status(500).json({ error: 'OPENAI_API_KEY is not configured' });
+    const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+    const id = Number(body.product_id);
+    const rows = await sql`SELECT * FROM affiliate_products WHERE id=${id}`;
+    if (!rows[0]) return res.status(404).json({ error: 'Product not found' });
+    const p = rows[0];
+    const prompt = `Tạo nội dung affiliate Facebook bằng tiếng Việt cho sản phẩm sau: ${p.name}. Giá: ${p.price}. Rating: ${p.rating}. Đơn: ${p.orders}. Hoa hồng: ${p.commission_rate}%. Link: ${p.affiliate_url || p.product_url}. Trả JSON duy nhất gồm hook, script_30s, caption, cta. Không phóng đại, không cam kết kết quả, không bịa thông số. Caption tự nhiên, có disclosure affiliate ngắn gọn nếu phù hợp.`;
+    const r = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+      body: JSON.stringify({ model: process.env.OPENAI_MODEL || 'gpt-5.6-mini', temperature: 0.7, response_format: { type: 'json_object' }, messages: [{ role: 'user', content: prompt }] })
+    });
+    if (!r.ok) throw new Error(`OpenAI error ${r.status}: ${await r.text()}`);
+    const out = JSON.parse((await r.json()).choices[0].message.content);
+    const inserted = await sql`INSERT INTO affiliate_content (product_id, hook, script, caption) VALUES (${id}, ${out.hook}, ${out.script_30s}, ${out.caption}) RETURNING *`;
+    return res.status(201).json({ content: inserted[0], ai: out });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ error: e.message });
+  }
+};
