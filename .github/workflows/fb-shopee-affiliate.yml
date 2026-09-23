@@ -53,16 +53,6 @@ jobs:
           if not r.ok: print(f'FACEBOOK_API_FAILED: HTTP {r.status_code} {r.text}'); sys.exit(1)
           data=r.json(); print(f"PASS: Facebook Page API — {data.get('name')} ({data.get('id')})")
           PY
-      - name: Remove accidental test post
-        env:
-          FACEBOOK_PAGE_ACCESS_TOKEN: ${{ secrets.FACEBOOK_PAGE_ACCESS_TOKEN }}
-        run: |
-          python3 - <<'PY'
-          import os, requests
-          post_id='1337765709414675_122106852387479564'
-          r=requests.delete(f'https://graph.facebook.com/v26.0/{post_id}',params={'access_token':os.environ['FACEBOOK_PAGE_ACCESS_TOKEN']},timeout=30)
-          print('Cleanup status:',r.status_code,r.text[:500])
-          PY
       - name: Validate Shopee affiliate source
         env:
           SHOPEE_API_APP_ID: ${{ secrets.SHOPEE_API_APP_ID }}
