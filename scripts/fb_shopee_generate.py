@@ -22,15 +22,14 @@ def score(r):
     orders=num(r.get('orders'))
     order_score=min(25, orders/1000*25)
     rating_score=max(0, min(20, (rating/5)*20))
-    commission_score=min(30, commission*2)
+    # Missing commission data is not treated as a zero-commission product.
+    commission_score=min(30, commission*2) if commission > 0 else 10
     price_score=15 if 50000 <= price <= 1000000 else 8
     return round(order_score+rating_score+commission_score+price_score, 1)
 
 product=max(ready, key=score)
 product_score=score(product)
 
-# If the CSV only has a normal Shopee product URL, turn it into a real
-# affiliate short link through Shopee's official Affiliate Open API.
 affiliate_url=(product.get('affiliate_url') or '').strip()
 if not affiliate_url:
     app_id=os.environ.get('SHOPEE_API_APP_ID','').strip()
@@ -55,14 +54,26 @@ if not affiliate_url:
     if not affiliate_url:
         raise SystemExit('Shopee returned an empty affiliate short link.')
 
-prompt=f'''Bạn là chuyên gia affiliate Facebook tại Việt Nam. Viết 1 bài Facebook ngắn, tự nhiên, không phóng đại cho sản phẩm Shopee sau:
-Tên: {product['product_name']}
-Giá tham khảo: {product['price']}
-Đánh giá: {product['rating']}
-Đã bán: {product['orders']}
-Ngành: {product['category']}
+prompt=f'''Bạn là người làm affiliate Facebook tại Việt Nam, ưu tiên tỷ lệ click và mua hàng nhưng tuyệt đối không spam.
+Viết 1 bài đăng có cảm giác như người thật đang chia sẻ một món đáng thử, không phải quảng cáo máy móc.
 
-Yêu cầu: hook 1 câu, 3 lợi ích thực tế, CTA rõ ràng. Không nói chắc chắn về hiệu quả nếu dữ liệu không chứng minh. Không tự bịa thông số. Trả về JSON với trường message.'''
+Sản phẩm:
+Tên: {product['product_name']}
+Giá tham khảo: {product['price'] or 'chưa có dữ liệu'}
+Đánh giá: {product['rating'] or 'chưa có dữ liệu'}
+Đã bán: {product['orders'] or 'chưa có dữ liệu'}
+Ngành: {product['category'] or 'chưa có dữ liệu'}
+
+Yêu cầu:
+- Mở đầu bằng 1 hook ngắn, tạo tò mò.
+- Bố cục thoáng, 5-8 dòng ngắn, có bullet/emoji vừa phải để dễ quét trên Facebook.
+- Nêu 2-3 điểm đáng chú ý dựa CHỈ trên dữ liệu được cung cấp; nếu thiếu dữ liệu thì nói theo hướng trải nghiệm/khám phá, không bịa tính năng.
+- Có một câu hỏi tự nhiên để kích thích bình luận.
+- CTA rõ ràng nhưng không giật tít.
+- Cuối bài đặt đúng link affiliate, không dùng placeholder.
+- Không dùng các câu như 'chắc chắn tốt nhất', 'cam kết', '100%'.
+- Không nhồi hashtag; tối đa 3 hashtag liên quan.
+- Trả JSON duy nhất với trường message.'''
 
 resp=requests.post('https://generativelanguage.googleapis.com/v1beta/models/'+os.environ['GEMINI_MODEL']+':generateContent',params={'key':os.environ['GEMINI_API_KEY']},json={'contents':[{'parts':[{'text':prompt}]}]},timeout=60)
 resp.raise_for_status()
@@ -71,8 +82,7 @@ if text.startswith('```'):
     text=text.split('\n',1)[1].rsplit('```',1)[0]
 data=json.loads(text)
 message=data['message']
-# Prevent the model from leaving a placeholder instead of the real affiliate URL.
-placeholders = ('[Chèn link affiliate của bạn]', '[LINK AFFILIATE]', '[link affiliate]', '<affiliate_url>')
+placeholders = ('[Chèn link affiliate của bạn]', '[LINK AFFILIATE]', '[link affiliate]', '<affiliate_url>', '[Link affiliate của bạn]')
 for placeholder in placeholders:
     message = message.replace(placeholder, affiliate_url)
 if affiliate_url not in message:
