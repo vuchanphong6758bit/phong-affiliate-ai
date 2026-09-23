@@ -1,5 +1,5 @@
 const { ensureSchema } = require('../lib/db');
-
+const { requireAdmin } = require('../lib/auth');
 module.exports = async (req, res) => {
   try {
     const sql = await ensureSchema();
@@ -8,6 +8,7 @@ module.exports = async (req, res) => {
       return res.status(200).json({ products: rows });
     }
     if (req.method === 'POST') {
+      if (!requireAdmin(req,res)) return;
       const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
       if (!body.name || !body.product_url) return res.status(400).json({ error: 'name and product_url are required' });
       const rows = await sql`INSERT INTO affiliate_products
@@ -18,8 +19,5 @@ module.exports = async (req, res) => {
       return res.status(201).json({ product: rows[0] });
     }
     return res.status(405).json({ error: 'Method not allowed' });
-  } catch (e) {
-    console.error(e);
-    return res.status(500).json({ error: e.message });
-  }
+  } catch (e) { console.error(e); return res.status(500).json({ error: e.message }); }
 };
