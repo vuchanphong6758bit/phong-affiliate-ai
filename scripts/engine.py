@@ -20,22 +20,32 @@ def rank(products):
     floor=float(os.getenv("MIN_EXPECTED_AD_COST_PER_ORDER","25000")); min_profit=float(os.getenv("MIN_EXPECTED_PROFIT_VND","10000"))
     for p in products:p["score"]=p["commission"]-floor
     return [p for p in sorted(products,key=lambda x:x["score"],reverse=True) if p["score"]>=min_profit]
+def live_metrics():
+    result=[]
+    url=os.getenv("LAZADA_AFFILIATE_METRICS_URL")
+    if url:
+        try:
+            d=requests.get(url,timeout=20).json(); result.append({"source":"affiliate","views":int(d.get("views",0)),"orders":int(d.get("orders",0)),"commission":float(d.get("commission",0))})
+        except Exception: pass
+    token=os.getenv("META_ACCESS_TOKEN"); account=os.getenv("META_AD_ACCOUNT_ID")
+    if token and account:
+        try:
+            d=requests.get(f"https://graph.facebook.com/v23.0/act_{account}/insights",params={"access_token":token,"fields":"impressions,spend","date_preset":"yesterday"},timeout=20).json().get("data",[])
+            result.append({"source":"meta","views":sum(int(float(x.get("impressions",0))) for x in d),"ad_spend":sum(float(x.get("spend",0)) for x in d)})
+        except Exception: pass
+    return result
 def context(c):
     rows=c.execute("SELECT title,views,orders,commission,ad_spend,profit,conversion_rate FROM posts ORDER BY id DESC LIMIT 10").fetchall(); out=[dict(zip(["title","views","orders","commission","ad_spend","profit","conversion_rate"],r)) for r in rows]
     if STATE.exists(): out += json.loads(STATE.read_text(encoding="utf-8")).get("metrics",[])[-10:]
-    return out[-20:]
+    out += live_metrics(); return out[-25:]
 def generate(product,ctx):
-    client=OpenAI(api_key=os.environ["OPENAI_API_KEY"])
-    prompt=f'''Bạn là AI tối ưu affiliate marketing tại Việt Nam. Viết một bài bán hàng trung thực cho sản phẩm.
+    client=OpenAI(api_key=os.environ["OPENAI_API_KEY"]); prompt=f'''Bạn là AI tối ưu affiliate marketing tại Việt Nam. Viết một bài bán hàng trung thực cho sản phẩm.
 Sản phẩm: {product['name']} | Giá: {product['price']:,.0f} VND | Hoa hồng dự kiến: {product['commission']:,.0f} VND | URL: {product['url']}
-Dữ liệu bài trước: {json.dumps(ctx,ensure_ascii=False)}
+Dữ liệu bài trước và KPI gần nhất: {json.dumps(ctx,ensure_ascii=False)}
 Mục tiêu: tăng conversion so với dữ liệu lịch sử. Không bịa giá, tính năng, khuyến mãi; không tuyên bố y tế/đảm bảo kết quả.
-Trả JSON: title, body, hypothesis, cta. Body 500-900 từ tiếng Việt, CTA rõ, URL đúng 1 lần.'''
-    r=client.responses.create(model=os.getenv("OPENAI_MODEL","gpt-5.6"),input=prompt)
-    try:
-        return json.loads(r.output_text)
-    except Exception:
-        return {"title":product["name"],"body":r.output_text,"hypothesis":"Tối ưu góc lợi ích và CTA","cta":"Xem sản phẩm"}
+Trả JSON: title, body, hypothesis, cta. Body 500-900 từ tiếng Việt, CTA rõ, URL đúng 1 lần.'''; r=client.responses.create(model=os.getenv("OPENAI_MODEL","gpt-5.6"),input=prompt)
+    try:return json.loads(r.output_text)
+    except Exception:return {"title":product["name"],"body":r.output_text,"hypothesis":"Tối ưu góc lợi ích và CTA","cta":"Xem sản phẩm"}
 def publish(payload):
     u=os.getenv("PUBLISH_WEBHOOK_URL")
     if not u:return ""
@@ -45,6 +55,5 @@ def main():
     if not products: print("No profitable products found."); return
     p=products[0]; now=datetime.now(VN).isoformat(); post=generate(p,context(c)); published=publish({**post,"product":p})
     c.execute("INSERT OR REPLACE INTO products VALUES(?,?,?,?,?,?,?,?,?)",(p["id"],p["name"],p["url"],p["price"],p["commission_rate"],p["commission"],p["score"],json.dumps(p["metadata"],ensure_ascii=False),now)); c.execute("INSERT INTO posts(product_id,title,body,published_url,created_at) VALUES(?,?,?,?,?)",(p["id"],post.get("title",""),post.get("body",""),published,now)); c.commit()
-    state=json.loads(STATE.read_text(encoding="utf-8")) if STATE.exists() else {"posts":[],"metrics":[]}; state["posts"].append({"product_id":p["id"],"title":post.get("title",""),"published_url":published,"created_at":now}); state["posts"]=state["posts"][-90:]; STATE.write_text(json.dumps(state,ensure_ascii=False,indent=2),encoding="utf-8"); c.close()
-    print(json.dumps({"product":p,"post":post,"published_url":published},ensure_ascii=False))
+    state=json.loads(STATE.read_text(encoding="utf-8")) if STATE.exists() else {"posts":[],"metrics":[]}; state["posts"].append({"product_id":p["id"],"title":post.get("title",""),"published_url":published,"created_at":now}); state["posts"]=state["posts"][-90:]; STATE.write_text(json.dumps(state,ensure_ascii=False,indent=2),encoding="utf-8"); c.close(); print(json.dumps({"product":p,"post":post,"published_url":published},ensure_ascii=False))
 if __name__=="__main__":main()
