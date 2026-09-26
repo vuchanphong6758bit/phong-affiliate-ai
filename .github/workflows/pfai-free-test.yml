@@ -3,6 +3,10 @@ run-name: Free dry run ${{ github.run_id }}
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - 'scripts/pfai_free_test.py'
+      - '.github/workflows/pfai-free-test.yml'
   schedule:
     - cron: '0 23 * * *'
       timezone: 'Asia/Ho_Chi_Minh'
