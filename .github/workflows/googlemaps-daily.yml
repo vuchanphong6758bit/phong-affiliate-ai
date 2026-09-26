@@ -2,6 +2,8 @@ name: Nhoy Tea - Google Maps Marketing
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
   schedule:
     # Every hour from 13:00 through 03:00 Vietnam time = 06:00..20:00 UTC.
     # The script posts at one selected hour only, then records the post date.
@@ -41,7 +43,7 @@ jobs:
           NHOYTEA_REFERENCE_IMAGE_URL: ${{ secrets.NHOYTEA_REFERENCE_IMAGE_URL }}
           NHOYTEA_ADDRESS: '572/28/2 Âu Cơ, phường Bảy Hiền, TP. HCM'
           DEFAULT_POST_HOUR_LOCAL: '19'
-          FORCE_TEST_POST: ${{ github.event_name == 'schedule' && github.event.schedule == '*/5 * * * *' && '1' || '0' }}
+          FORCE_TEST_POST: ${{ (github.event_name == 'push' || github.event_name == 'schedule') && '1' || '0' }}
         run: node googlemaps/googlemaps-daily.mjs
       - name: Commit workflow state
         run: |
