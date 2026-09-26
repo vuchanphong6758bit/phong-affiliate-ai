@@ -1,0 +1,49 @@
+name: Nhoy Tea - Google Maps Marketing
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Every hour from 13:00 through 03:00 Vietnam time = 06:00..20:00 UTC.
+    # The script posts at one selected hour only, then records the post date.
+    - cron: '0 6-20 * * *'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nhoytea-googlemaps-daily
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Run Google Maps publisher
+        env:
+          GBP_CLIENT_ID: ${{ secrets.GBP_CLIENT_ID }}
+          GBP_CLIENT_SECRET: ${{ secrets.GBP_CLIENT_SECRET }}
+          GBP_REFRESH_TOKEN: ${{ secrets.GBP_REFRESH_TOKEN }}
+          GBP_LOCATION_NAME: ${{ secrets.GBP_LOCATION_NAME }}
+          GBP_ACCOUNT_NAME: ${{ secrets.GBP_ACCOUNT_NAME }}
+          GBP_ORDER_URL: ${{ secrets.GBP_ORDER_URL }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_IMAGE_MODEL: ${{ vars.OPENAI_IMAGE_MODEL }}
+          OPENAI_IMAGE_SIZE: ${{ vars.OPENAI_IMAGE_SIZE }}
+          OPENAI_IMAGE_QUALITY: ${{ vars.OPENAI_IMAGE_QUALITY }}
+          CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
+          CLOUDINARY_UPLOAD_PRESET: ${{ secrets.CLOUDINARY_UPLOAD_PRESET }}
+          NHOYTEA_REFERENCE_IMAGE_URL: ${{ secrets.NHOYTEA_REFERENCE_IMAGE_URL }}
+          NHOYTEA_ADDRESS: '572/28/2 Âu Cơ, phường Bảy Hiền, TP. HCM'
+          DEFAULT_POST_HOUR_LOCAL: '19'
+        run: node googlemaps/googlemaps-daily.mjs
+      - name: Commit workflow state
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add data/googlemaps-history.json
+          git diff --cached --quiet || git commit -m 'Update Nhoy Tea Google Maps marketing state'
+          git push
