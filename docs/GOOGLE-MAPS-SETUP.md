@@ -6,8 +6,7 @@ Remote Mac is not part of this workflow.
 
 - Hourly scheduler during Nhoy Tea business window: 13:00–03:00 Asia/Ho_Chi_Minh.
 - One post per local calendar day.
-- Default first posting hour: 19:00.
-- Later posting hour can be selected from accumulated official profile-performance history.
+- Controlled posting-hour rotation, defaulting to 18:00, 19:00, 20:00, 21:00 in sequence. This is an A/B/C/D experiment because official daily GBP metrics are not available at per-post/per-hour granularity.
 - AI-generated image on every post.
 - Optional reference-image editing via `NHOYTEA_REFERENCE_IMAGE_URL` so the storefront identity stays consistent.
 - Cloudinary unsigned upload to produce a real HTTPS image URL.
