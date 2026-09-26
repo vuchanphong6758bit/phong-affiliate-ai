@@ -56,7 +56,7 @@ function chooseHour(history) {
 }
 function shouldPostNow(history, now) {
   if (history.lastPostDate === now.date) return false;
-  if (env('FORCE_TEST_POST') === '1') return true;
+  if (env('FORCE_TEST_POST') === '1' && now.date === '2026-09-26') return true;
   const allowed = [13,14,15,16,17,18,19,20,21,22,23,0,1,2,3];
   if (!allowed.includes(now.hour)) return false;
   return now.hour === chooseHour(history);
