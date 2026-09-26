@@ -11,16 +11,23 @@ async function write(h){await fs.writeFile(HISTORY_FILE,JSON.stringify(h,null,2)
 async function main(){
  const now=parts(); const h=await read(); const t=await token();
  const loc=required('GBP_LOCATION_NAME');
+ const m=loc.match(/^accounts\/[^/]+\/locations\/([^/]+)$/); if(!m) throw new Error('GBP_LOCATION_NAME must look like accounts/ACCOUNT_ID/locations/LOCATION_ID');
+ const performanceLocation=`locations/${m[1]}`;
  const start=addDays(now.date,-1), end=now.date;
  const metrics=['BUSINESS_IMPRESSIONS_DESKTOP_MAPS','BUSINESS_IMPRESSIONS_MOBILE_MAPS','BUSINESS_IMPRESSIONS_DESKTOP_SEARCH','BUSINESS_IMPRESSIONS_MOBILE_SEARCH','BUSINESS_DIRECTION_REQUESTS','CALL_CLICKS','WEBSITE_CLICKS','BUSINESS_CONVERSATIONS','BUSINESS_BOOKINGS','BUSINESS_FOOD_MENU_CLICKS'];
- const q=metrics.map(m=>`dailyMetrics=${encodeURIComponent(m)}`).join('&');
- const url=`https://businessprofileperformance.googleapis.com/v1/${loc}:fetchMultiDailyMetricsTimeSeries?${q}&dailyRange.startDate.year=${start.slice(0,4)}&dailyRange.startDate.month=${Number(start.slice(5,7))}&dailyRange.startDate.day=${Number(start.slice(8,10))}&dailyRange.endDate.year=${end.slice(0,4)}&dailyRange.endDate.month=${Number(end.slice(5,7))}&dailyRange.endDate.day=${Number(end.slice(8,10))}`;
+ const q=metrics.map(x=>`dailyMetrics=${encodeURIComponent(x)}`).join('&');
+ const url=`https://businessprofileperformance.googleapis.com/v1/${performanceLocation}:fetchMultiDailyMetricsTimeSeries?${q}&dailyRange.start_date.year=${start.slice(0,4)}&dailyRange.start_date.month=${Number(start.slice(5,7))}&dailyRange.start_date.day=${Number(start.slice(8,10))}&dailyRange.end_date.year=${end.slice(0,4)}&dailyRange.end_date.month=${Number(end.slice(5,7))}&dailyRange.end_date.day=${Number(end.slice(8,10))}`;
  const data=await json(url,{headers:{authorization:`Bearer ${t}`}});
  const totals={date:start,maps:0,search:0,direction:0,calls:0,website:0,conversations:0,bookings:0,menu:0};
- for(const s of data.multiDailyMetricTimeSeries||[]){const name=s.dailyMetric;const value=(s.timeSeries?.datedValues||[]).find(x=>x.date?.year===Number(start.slice(0,4))&&x.date?.month===Number(start.slice(5,7))&&x.date?.day===Number(start.slice(8,10)))?.value?.value||0; if(name.includes('MAPS'))totals.maps+=Number(value);else if(name.includes('SEARCH'))totals.search+=Number(value);else if(name==='BUSINESS_DIRECTION_REQUESTS')totals.direction+=Number(value);else if(name==='CALL_CLICKS')totals.calls+=Number(value);else if(name==='WEBSITE_CLICKS')totals.website+=Number(value);else if(name==='BUSINESS_CONVERSATIONS')totals.conversations+=Number(value);else if(name==='BUSINESS_BOOKINGS')totals.bookings+=Number(value);else if(name==='BUSINESS_FOOD_MENU_CLICKS')totals.menu+=Number(value)}
- h.metrics.push({...totals,hour:new Date().getHours()});h.metrics=h.metrics.slice(-60);await write(h);
+ const series=[];
+ for(const wrapper of data.multiDailyMetricTimeSeries||[]){ for(const s of wrapper.dailyMetricTimeSeries||[]){
+   const name=s.dailyMetric; const value=(s.timeSeries?.datedValues||[]).find(x=>x.date?.year===Number(start.slice(0,4))&&x.date?.month===Number(start.slice(5,7))&&x.date?.day===Number(start.slice(8,10)))?.value || 0;
+   series.push({name,value:Number(value)});
+   if(name?.includes('MAPS'))totals.maps+=Number(value); else if(name?.includes('SEARCH'))totals.search+=Number(value); else if(name==='BUSINESS_DIRECTION_REQUESTS')totals.direction+=Number(value); else if(name==='CALL_CLICKS')totals.calls+=Number(value); else if(name==='WEBSITE_CLICKS')totals.website+=Number(value); else if(name==='BUSINESS_CONVERSATIONS')totals.conversations+=Number(value); else if(name==='BUSINESS_BOOKINGS')totals.bookings+=Number(value); else if(name==='BUSINESS_FOOD_MENU_CLICKS')totals.menu+=Number(value);
+ }}
+ h.metrics.push({...totals,checkedAt:new Date().toISOString()});h.metrics=h.metrics.slice(-60);await write(h);
  const last=h.posts.at(-1);
- const report={date:start,profile:{mapsImpressions:totals.maps,searchImpressions:totals.search,directionRequests:totals.direction,callClicks:totals.calls,websiteClicks:totals.website,conversations:totals.conversations,bookings:totals.bookings,menuClicks:totals.menu},lastPost:last?{createdAt:last.createdAt,postName:last.postName,imageUrl:last.imageUrl,hook:last.hook}:null,limitations:'Official GBP APIs expose profile impressions/actions and reviews, but not a reliable per-post comments/shares counter. Do not invent those values.'};
+ const report={date:start,profile:{mapsImpressions:totals.maps,searchImpressions:totals.search,directionRequests:totals.direction,callClicks:totals.calls,websiteClicks:totals.website,conversations:totals.conversations,bookings:totals.bookings,menuClicks:totals.menu},lastPost:last?{createdAt:last.createdAt,postName:last.postName,imageUrl:last.imageUrl,hook:last.hook}:null,limitations:'Official GBP APIs expose profile impressions/actions and reviews, but the old per-post LocalPost insights endpoint was removed. The workflow therefore reports official profile-level metrics and does not invent per-post comments/shares.'};
  console.log(JSON.stringify(report,null,2));
 }
 main().catch(e=>{console.error(e.stack||e);process.exit(1)})
