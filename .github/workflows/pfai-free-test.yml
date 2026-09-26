@@ -1,0 +1,30 @@
+name: PFAI Free Dry Run
+run-name: Free dry run ${{ github.run_id }}
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 23 * * *'
+      timezone: 'Asia/Ho_Chi_Minh'
+
+permissions:
+  contents: write
+
+jobs:
+  dry-run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Run zero-cost affiliate simulation
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-2.5-flash' }}
+        run: python3 scripts/pfai_free_test.py
+      - name: Upload dry-run report
+        uses: actions/upload-artifact@v4
+        with:
+          name: pfai-free-dry-run-${{ github.run_id }}
+          path: test-output.json
+          retention-days: 7
