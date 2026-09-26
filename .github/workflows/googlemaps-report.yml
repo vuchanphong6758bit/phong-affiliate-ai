@@ -28,6 +28,12 @@ jobs:
           GBP_REFRESH_TOKEN: ${{ secrets.GBP_REFRESH_TOKEN }}
           GBP_LOCATION_NAME: ${{ secrets.GBP_LOCATION_NAME }}
         run: node googlemaps/googlemaps-report.mjs | tee googlemaps-report.json
+      - name: Add report to workflow summary
+        run: |
+          echo '## Nhoy Tea - Google Maps KPI' >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          cat googlemaps-report.json >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
       - name: Upload report artifact
         uses: actions/upload-artifact@v4
         with:
