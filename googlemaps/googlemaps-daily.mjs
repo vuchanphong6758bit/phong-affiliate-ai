@@ -54,7 +54,13 @@ function chooseHour(history) {
   // instead of pretending that a daily profile metric identifies the best posting hour.
   return slots[(history.posts?.length || 0) % slots.length];
 }
-function shouldPostNow(history, now) { if (history.lastPostDate === now.date) return false; const allowed = [13,14,15,16,17,18,19,20,21,22,23,0,1,2,3]; if (!allowed.includes(now.hour)) return false; return now.hour === chooseHour(history); }
+function shouldPostNow(history, now) {
+  if (history.lastPostDate === now.date) return false;
+  if (env('FORCE_TEST_POST') === '1') return true;
+  const allowed = [13,14,15,16,17,18,19,20,21,22,23,0,1,2,3];
+  if (!allowed.includes(now.hour)) return false;
+  return now.hour === chooseHour(history);
+}
 
 async function main() {
   const now = localParts(); const history = await readHistory(); const targetHour = chooseHour(history);
