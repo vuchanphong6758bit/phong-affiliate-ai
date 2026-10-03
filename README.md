@@ -1,56 +1,54 @@
-# Phong Affiliate AI
+# Phong Affiliate AI — Production
 
-Workflow tự động nghiên cứu sản phẩm affiliate, chọn sản phẩm có biên hoa hồng kỳ vọng cao hơn chi phí quảng cáo, tạo bài viết bằng AI, xuất bản qua webhook và gửi báo cáo KPI lúc 06:00 mỗi ngày (Asia/Ho_Chi_Minh).
+Hệ thống Affiliate Lazada duy nhất của dự án. Mục tiêu: lấy dữ liệu affiliate hợp lệ, chọn sản phẩm theo economics, tạo nội dung bằng AI, xuất bản qua kênh được cấu hình, thu thập KPI và dùng dữ liệu lịch sử để tối ưu nội dung.
 
-## Luồng chạy
+## Kiến trúc Production
 
-1. 05:00: lấy feed sản phẩm affiliate → tính hoa hồng dự kiến → loại sản phẩm không đạt biên lợi nhuận.
-2. AI tạo bài viết mới dựa trên dữ liệu các bài trước.
-3. Nếu có `PUBLISH_WEBHOOK_URL`, bài viết được gửi tới hệ thống xuất bản của bạn.
-4. Lưu lịch sử để ngày sau AI tiếp tục tối ưu góc nội dung/CTA.
-5. 06:00: lấy số liệu Facebook Ads + affiliate metrics và gửi email tới `vuchanphong6758@gmail.com`.
+`Lazada Affiliate Feed/API → Product Normalization → Economics → AI Content → Publishing → KPI → Learning`
 
-## Cần cấu hình GitHub Actions
+Chỉ một workflow Production được phép chạy tự động. Không tạo workflow Affiliate thứ hai trong repository này.
 
-Vào **Settings → Secrets and variables → Actions**.
+## Trạng thái hiện tại
 
-### Secrets
+- Có connector cho Lazada affiliate feed.
+- Có scoring economics.
+- Có AI content engine hiện hữu.
+- Có lưu lịch sử và KPI.
+- Có kiểm tra cấu hình Production.
+- Chưa tự động tăng ngân sách quảng cáo.
+- Không scraping Lazada.
+
+## Cấu hình bắt buộc
+
+GitHub → Settings → Secrets and variables → Actions:
 
 - `OPENAI_API_KEY`
-- `LAZADA_AFFILIATE_FEED_URL` — endpoint/feed của nguồn affiliate mà tài khoản của bạn được phép truy cập.
-- `PUBLISH_WEBHOOK_URL` — webhook nhận `{title, body, cta, product}` để đăng bài.
-- `META_ACCESS_TOKEN`
-- `META_AD_ACCOUNT_ID`
-- `LAZADA_AFFILIATE_METRICS_URL` — endpoint metrics affiliate của bạn.
-- `SMTP_HOST`
-- `SMTP_USER`
-- `SMTP_PASSWORD`
+- `LAZADA_AFFILIATE_FEED_URL` — feed/API affiliate hợp lệ được tài khoản của bạn cấp quyền.
 
-### Variables
+## Cấu hình xuất bản
+
+- `PUBLISH_WEBHOOK_URL`
+
+Nếu chưa có webhook, hệ thống không được coi là đã hoàn thành khâu xuất bản.
+
+## Cấu hình KPI
+
+Một trong hai nguồn cần có:
+
+- `LAZADA_AFFILIATE_METRICS_URL`
+- `META_ACCESS_TOKEN` + `META_AD_ACCOUNT_ID`
+
+## Variables
 
 - `OPENAI_MODEL` — mặc định `gpt-5.6`.
 - `MIN_EXPECTED_AD_COST_PER_ORDER` — mặc định `25000` VND.
 - `MIN_EXPECTED_PROFIT_VND` — mặc định `10000` VND.
-- `SMTP_PORT` — mặc định `587`.
-- `USD_TO_VND` — mặc định `25000`.
+- `MAX_PRODUCTS_PER_RUN` — mặc định `5`.
 
-## Quan trọng về Lazada
+## Nguyên tắc an toàn
 
-Không nên scraping trang Lazada để giả lập API. Lazada Open Platform yêu cầu ứng dụng được cấp quyền/API permission phù hợp; API production của Việt Nam dùng `https://api.lazada.vn/rest`. Quyền truy cập dữ liệu phụ thuộc app và authorization. Hãy dùng feed/API affiliate hợp lệ mà tài khoản của bạn được cấp.
-
-## Quan trọng về Facebook Ads
-
-Workflow đọc chi phí quảng cáo từ Meta Marketing API. Việc tạo/chỉnh ngân sách quảng cáo tự động chưa được bật trong bản này; đây là chủ ý để tránh tăng ngân sách ngoài kiểm soát. Có thể bổ sung tầng `budget_guard` với giới hạn ngân sách/ngày và ngưỡng ROAS/CPA.
-
-## Chỉ số email
-
-- Lượt view
-- Lượt mua hàng
-- Tỷ lệ mua sau view
-- Chi phí Facebook Ads
-- Tổng hoa hồng
-- Lợi nhuận cuối cùng = hoa hồng - chi phí quảng cáo
-
-## Lưu ý
-
-GitHub Actions cron dùng UTC. `22:00 UTC` tương ứng `05:00` và `23:00 UTC` tương ứng `06:00` tại Việt Nam khi UTC+7. GitHub có thể khởi chạy scheduled workflow trễ hơn vài phút.
+1. Production không tự sửa code.
+2. Không tự tăng ngân sách quảng cáo.
+3. Không tạo workflow trùng lặp.
+4. Chỉ dùng Lazada API/feed được cấp quyền.
+5. Mọi thay đổi lớn phải qua version/commit và có thể rollback.
